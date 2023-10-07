@@ -20,7 +20,9 @@ const CollapseCard = ({
   const [expanded, setExpanded] = React.useState(false);
   const handleExpandClick = () => {
     setExpanded(!expanded);
-    onExpand();
+      if (onExpand) {
+        onExpand();
+      }
   };
 
   React.useEffect(() => {
