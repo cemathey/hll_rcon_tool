@@ -5,6 +5,7 @@ import {
     Button,
     Card,
     Checkbox,
+    Divider,
     FormControlLabel,
     FormGroup,
     FormLabel,
@@ -272,7 +273,7 @@ const BalanceControls = () => {
                                     <TextField
                                         id="outlined-number"
                                         helperText="Seconds until player is swappable again"
-                                        label="Immune Level"
+                                        label="Seconds block before next swap"
                                         type="number"
                                         value={immuneLevel}
                                         onChange={(e) => handleImmuneLevelChange(e.target.value)}
@@ -291,7 +292,7 @@ const BalanceControls = () => {
                                     <TextField
                                         id="outlined-number"
                                         helperText="Players below this level will not be swapped"
-                                        label="Immune Level"
+                                        label="Do not swap under level"
                                         type="number"
                                         value={immuneSeconds}
                                         onChange={(e) => handleImmuneSecondsChange(e.target.value)}
@@ -333,13 +334,17 @@ const BalanceControls = () => {
                                     />
                                 </FormGroup>
                             </Grid>
-                            <Grid item xs={12}>
+                            <Grid item xs={12} >
+                                <Typography variant={"h5"} style={{marginBottom:"5px"}}>Select roles</Typography>
                                 {roleGroups.map((g) => {
                                     const checkboxState = determineCheckboxState(g.id);
                                     return (
                                         <>
                                             <FormGroup>
+                                                <Divider></Divider>
+                                                <Typography variant="subtitle2"> Role Group: {g.label}</Typography>
                                                 <FormControlLabel
+                                                    style={{marginLeft: "40%"}}
                                                     label={g.label}
                                                     control={
                                                         <Checkbox
@@ -351,13 +356,12 @@ const BalanceControls = () => {
                                                         />
                                                     }
                                                 />
-                                            </FormGroup>
-                                            <FormGroup>
                                                 {roles
                                                     .filter((r) => g.roles.has(r.id))
                                                     .map((r) => {
                                                         return (
                                                             <FormControlLabel
+                                                                style={{marginLeft: "44%"}}
                                                                 label={r.label}
                                                                 control={
                                                                     <Checkbox
@@ -373,7 +377,6 @@ const BalanceControls = () => {
                                     );
                                 })}
                             </Grid>
-
                         </Grid>
                     </form>
                 </Box>
