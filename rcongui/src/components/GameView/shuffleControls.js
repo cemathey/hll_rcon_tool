@@ -1,6 +1,6 @@
 import React, {useState} from "react";
 import {handle_http_errors, postData, showResponse} from "../../utils/fetchUtils";
-import {Box, Button, Card, FormControl, FormControlLabel, FormLabel, Grid, Radio, RadioGroup} from "@material-ui/core";
+import {Box, Button, Card, FormControl, FormLabel, Grid} from "@material-ui/core";
 import {ToggleButton, ToggleButtonGroup} from "@material-ui/lab";
 import ConfirmationDialog from "./ConfirmationDialog";
 
