@@ -1,7 +1,9 @@
 import React, {useState} from "react";
 import {handle_http_errors, postData, showResponse} from "../../utils/fetchUtils";
-import {Button, FormControl, FormControlLabel, FormLabel, Grid, Radio, RadioGroup} from "@material-ui/core";
- const ShuffleControls = () => {
+import {Box, Button, Card, FormControl, FormControlLabel, FormLabel, Grid, Radio, RadioGroup} from "@material-ui/core";
+import {ToggleButton, ToggleButtonGroup} from "@material-ui/lab";
+
+const ShuffleControls = () => {
     /* TODO: should make an endpoint to provide these dynamically */
     const METHODS = [
         {method: "random_shuffle", label: "Random Shuffle"},
@@ -11,7 +13,7 @@ import {Button, FormControl, FormControlLabel, FormLabel, Grid, Radio, RadioGrou
 
     const [shuffleMethod, setShuffleMethod] = useState(METHODS[0].method);
 
-    const handleChange = (e) => setShuffleMethod(e.target.value);
+    const handleChange = (event, method) => setShuffleMethod(method);
     const handleSubmit = (e) => {
         e.preventDefault();
         return postData(`${process.env.REACT_APP_API_URL}do_shuffle_teams`, {
@@ -24,32 +26,49 @@ import {Button, FormControl, FormControlLabel, FormLabel, Grid, Radio, RadioGrou
     };
 
     return (
-        <Grid item xs={12} lg={6}>
-            <form>
-                <FormControl>
-                    <FormLabel>Shuffle Controls</FormLabel>
-                    <RadioGroup
-                        name="shuffle_method"
-                        value={shuffleMethod}
-                        onChange={handleChange}
-                    >
-                        {METHODS.map((m) => {
-                            return (
-                                <FormControlLabel
-                                    value={m.method}
-                                    control={<Radio/>}
-                                    label={m.label}
-                                />
-                            );
-                        })}
-                    </RadioGroup>
-                </FormControl>
-                <Button type="submit" variant="contained" onClick={handleSubmit}>
-                    Shuffle Teams
-                </Button>
-            </form>
+        <Grid item xs={12}>
+            <Card>
+                <Box p={2}>
+                    <form>
+                        <FormControl>
+                            <Grid container direction={"column"} spacing={2}>
+                                <Grid item>
+                                    <FormLabel>Shuffle Controls</FormLabel>
+                                </Grid>
+                                <Grid item>
+                                    <ToggleButtonGroup
+                                        name="shuffle_method"
+                                        value={shuffleMethod}
+                                        onChange={handleChange}
+                                        exclusive
+                                    >
+                                        {METHODS.map((m) => {
+                                            return (
+                                                <ToggleButton
+                                                    key={m.method}
+                                                    value={m.method}
+                                                    aria-label={m.lable}
+                                                >{m.label}</ToggleButton>
+                                            );
+                                        })}
+                                    </ToggleButtonGroup>
+                                </Grid>
+
+                                <Grid item>
+                                    <Button type="submit"
+                                            variant="contained"
+                                            color="primary"
+                                            onClick={handleSubmit}>
+                                        Shuffle Teams
+                                    </Button>
+                                </Grid>
+                            </Grid>
+                        </FormControl>
+                    </form>
+                </Box>
+            </Card>
         </Grid>
     );
 };
 
- export default ShuffleControls;
+export default ShuffleControls;

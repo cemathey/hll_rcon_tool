@@ -1,17 +1,17 @@
 import React, {useState} from "react";
 import {handle_http_errors, postData, showResponse} from "../../utils/fetchUtils";
 import {
+    Box,
     Button,
+    Card,
     Checkbox,
-    FormControl,
     FormControlLabel,
     FormGroup,
     FormLabel,
     Grid,
-    Radio,
-    RadioGroup,
     Switch,
-    TextField
+    TextField,
+    Typography
 } from "@material-ui/core";
 import {ToggleButton, ToggleButtonGroup} from "@material-ui/lab";
 
@@ -138,7 +138,7 @@ const BalanceControls = () => {
     const [includeTeamless, setIncludeTeamless] = useState(false);
     const [swapOnDeath, setSwapOnDeath] = useState(false);
 
-    const handleBalanceChange = (e) => setBalanceMethod(e.target.value);
+    const handleBalanceChange = (event, method) => setBalanceMethod(method);
     // TODO: add error handling for out of bounds conditions
     const handleImmuneLevelChange = (value) => setImmuneLevel(value);
     const handleImmuneSecondsChange = (value) => setImmuneSeconds(value);
@@ -233,133 +233,152 @@ const BalanceControls = () => {
     };
 
     return (
-        <form>
-            <Grid item xs={12}>
-                <FormControl>
-                    <FormLabel>Balance Method</FormLabel>
-                    <RadioGroup
-                        name="shuffle_method"
-                        value={balanceMethod}
-                        onChange={handleBalanceChange}
-                    >
-                        {METHODS.map((m) => {
-                            return (
-                                <FormControlLabel
-                                    value={m.method}
-                                    control={<Radio />}
-                                    label={m.label}
-                                />
-                            );
-                        })}
-                    </RadioGroup>
-                </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-                <FormGroup>
-                    <FormControl>
-                        <TextField
-                            id="outlined-number"
-                            helperText="Seconds until player is swappable again"
-                            label="Immune Level"
-                            type="number"
-                            value={immuneLevel}
-                            onChange={(e) => handleImmuneLevelChange(e.target.value)}
-                            InputLabelProps={{
-                                shrink: true,
-                            }}
-                            variant="outlined"
-                        />
-                    </FormControl>
-                    <FormControl>
-                        <TextField
-                            id="outlined-number"
-                            helperText="Players below this level will not be swapped"
-                            label="Immune Level"
-                            type="number"
-                            value={immuneSeconds}
-                            onChange={(e) => handleImmuneSecondsChange(e.target.value)}
-                            InputLabelProps={{
-                                shrink: true,
-                            }}
-                            variant="outlined"
-                        />
-                    </FormControl>
-                </FormGroup>
-            </Grid>
-            <Grid item xs={12}>
-                <FormGroup>
-                    <FormControlLabel
-                        control={
-                            <Switch
-                                checked={includeTeamless}
-                                onChange={(e) => setIncludeTeamless(e.target.checked)}
-                                name="includeTeamless"
-                                color="primary"
-                            />
-                        }
-                        label="Include Teamless Players"
-                    />
-                    <FormControlLabel
-                        control={
-                            <Switch
-                                checked={swapOnDeath}
-                                onChange={(e) => setSwapOnDeath(e.target.checked)}
-                                name="swapOnDeath"
-                                color="primary"
-                            />
-                        }
-                        label="Swap On Death"
-                    />
-                </FormGroup>
-            </Grid>
-            <Grid item xs={12}>
-                <FormGroup>
-                    {roleGroups.map((g) => {
-                        const checkboxState = determineCheckboxState(g.id);
-                        return (
-                            <>
-                                <FormGroup>
+        <Grid item>
+            <Card>
+                <Box p={2}>
+                    <form>
+                        <Grid container direction={"column"} spacing={3}>
+                            <Grid item>
+                                <FormLabel>Balance Method</FormLabel>
+                            </Grid>
+                            <Grid item xs={12}>
+                                <ToggleButtonGroup
+                                    name="shuffle_method"
+                                    value={balanceMethod}
+                                    onChange={handleBalanceChange}
+                                    exclusive
+                                >
+                                    {METHODS.map((m) => {
+                                        return (
+                                            <ToggleButton
+                                                key={m.method}
+                                                value={m.method}
+                                                aria-label={m.lable}
+                                            >{m.label}</ToggleButton>
+                                        );
+                                    })}
+                                </ToggleButtonGroup>
+                            </Grid>
+                            <Grid item xs={12}>
+                                <Button type="submit" variant="contained" color="primary" onClick={handleSubmit}>
+                                    Balance Teams
+                                </Button>
+                            </Grid>
+                            <Grid item xs={12}>
+                                <Typography variant="subtitle1"> Additional Balance configurations</Typography>
+                            </Grid>
+                            <Grid item container xs={12} spacing={2} justify={"center"}>
+                                <Grid item>
+                                    <TextField
+                                        id="outlined-number"
+                                        helperText="Seconds until player is swappable again"
+                                        label="Immune Level"
+                                        type="number"
+                                        value={immuneLevel}
+                                        onChange={(e) => handleImmuneLevelChange(e.target.value)}
+                                        InputLabelProps={{
+                                            shrink: true,
+                                        }}
+                                        InputProps={{
+                                            inputProps: {
+                                                min: 1
+                                            }
+                                        }}
+                                        variant="outlined"
+                                    />
+                                </Grid>
+                                <Grid item>
+                                    <TextField
+                                        id="outlined-number"
+                                        helperText="Players below this level will not be swapped"
+                                        label="Immune Level"
+                                        type="number"
+                                        value={immuneSeconds}
+                                        onChange={(e) => handleImmuneSecondsChange(e.target.value)}
+                                        InputLabelProps={{
+                                            shrink: true,
+                                        }}
+                                        InputProps={{
+                                            inputProps: {
+                                                min: 1
+                                            }
+                                        }}
+                                        variant="outlined"
+                                    />
+                                </Grid>
+                            </Grid>
+                            <Grid item xs={12}>
+                                <FormGroup row style={{justifyContent:"center"}}>
                                     <FormControlLabel
-                                        label={g.label}
                                         control={
-                                            <Checkbox
-                                                checked={checkboxState.checked}
-                                                indeterminate={checkboxState.indeterminate}
-                                                onChange={() =>
-                                                    handleRoleGroupsChange(g.id, checkboxState)
-                                                }
+                                            <Switch
+                                                checked={includeTeamless}
+                                                onChange={(e) => setIncludeTeamless(e.target.checked)}
+                                                name="includeTeamless"
+                                                color="primary"
                                             />
                                         }
+                                        label="Include Teamless Players"
+                                    />
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={swapOnDeath}
+                                                onChange={(e) => setSwapOnDeath(e.target.checked)}
+                                                name="swapOnDeath"
+                                                color="primary"
+                                            />
+                                        }
+                                        label="Swap On Death"
                                     />
                                 </FormGroup>
-                                <FormGroup>
-                                    {roles
-                                        .filter((r) => g.roles.has(r.id))
-                                        .map((r) => {
-                                            return (
+                            </Grid>
+                            <Grid item xs={12}>
+                                {roleGroups.map((g) => {
+                                    const checkboxState = determineCheckboxState(g.id);
+                                    return (
+                                        <>
+                                            <FormGroup>
                                                 <FormControlLabel
-                                                    label={r.label}
+                                                    label={g.label}
                                                     control={
                                                         <Checkbox
-                                                            checked={r.checked}
-                                                            onChange={() => handleRolesChange(r.id)}
+                                                            checked={checkboxState.checked}
+                                                            indeterminate={checkboxState.indeterminate}
+                                                            onChange={() =>
+                                                                handleRoleGroupsChange(g.id, checkboxState)
+                                                            }
                                                         />
                                                     }
                                                 />
-                                            );
-                                        })}
-                                </FormGroup>
-                            </>
-                        );
-                    })}
-                </FormGroup>
-            </Grid>
-            <Grid item xs={12}>
-                <Button type="submit" variant="contained" onClick={handleSubmit}>
-                    Balance Teams
-                </Button>
-            </Grid>
-        </form>
+                                            </FormGroup>
+                                            <FormGroup>
+                                                {roles
+                                                    .filter((r) => g.roles.has(r.id))
+                                                    .map((r) => {
+                                                        return (
+                                                            <FormControlLabel
+                                                                label={r.label}
+                                                                control={
+                                                                    <Checkbox
+                                                                        checked={r.checked}
+                                                                        onChange={() => handleRolesChange(r.id)}
+                                                                    />
+                                                                }
+                                                            />
+                                                        );
+                                                    })}
+                                            </FormGroup>
+                                        </>
+                                    );
+                                })}
+                            </Grid>
+
+                        </Grid>
+                    </form>
+                </Box>
+            </Card>
+        </Grid>
     );
 };
 
