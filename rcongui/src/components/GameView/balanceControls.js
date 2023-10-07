@@ -15,6 +15,7 @@ import {
     Typography
 } from "@material-ui/core";
 import {ToggleButton, ToggleButtonGroup} from "@material-ui/lab";
+import ConfirmationDialog from "./ConfirmationDialog";
 
 const BalanceControls = () => {
     /* TODO: should make an endpoint to provide these dynamically */
@@ -134,10 +135,11 @@ const BalanceControls = () => {
     ]);
 
     const [balanceMethod, setBalanceMethod] = useState(METHODS[0].method);
-    const [immuneLevel, setImmuneLevel] = useState(0);
-    const [immuneSeconds, setImmuneSeconds] = useState(0);
+    const [immuneLevel, setImmuneLevel] = useState(1);
+    const [immuneSeconds, setImmuneSeconds] = useState(1);
     const [includeTeamless, setIncludeTeamless] = useState(false);
     const [swapOnDeath, setSwapOnDeath] = useState(false);
+    const [modalOpen, setModalOpen] = useState(false);
 
     const handleBalanceChange = (event, method) => setBalanceMethod(method);
     // TODO: add error handling for out of bounds conditions
@@ -217,8 +219,7 @@ const BalanceControls = () => {
     const selectedRoleNames = () =>
         roles.filter((r) => r.checked).map((r) => r.value);
 
-    const handleSubmit = (e) => {
-        e.preventDefault();
+    const handleSubmit = () => {
         return postData(`${process.env.REACT_APP_API_URL}do_even_teams`, {
             rebalance_method: balanceMethod,
             immune_level: immuneLevel,
@@ -261,7 +262,7 @@ const BalanceControls = () => {
                                 </ToggleButtonGroup>
                             </Grid>
                             <Grid item xs={12}>
-                                <Button type="submit" variant="contained" color="primary" onClick={handleSubmit}>
+                                <Button variant="contained" color="primary" onClick={() => setModalOpen(true)}>
                                     Balance Teams
                                 </Button>
                             </Grid>
@@ -309,7 +310,7 @@ const BalanceControls = () => {
                                 </Grid>
                             </Grid>
                             <Grid item xs={12}>
-                                <FormGroup row style={{justifyContent:"center"}}>
+                                <FormGroup row style={{justifyContent: "center"}}>
                                     <FormControlLabel
                                         control={
                                             <Switch
@@ -334,20 +335,25 @@ const BalanceControls = () => {
                                     />
                                 </FormGroup>
                             </Grid>
-                            <Grid item xs={12} >
-                                <Typography variant={"h5"} style={{marginBottom:"5px"}}>Select roles</Typography>
+                            <Grid item xs={12}>
+                                <Typography variant={"h5"} style={{marginBottom: "5px"}}>Select roles</Typography>
                                 {roleGroups.map((g) => {
                                     const checkboxState = determineCheckboxState(g.id);
                                     return (
-                                        <>
-                                            <FormGroup>
-                                                <Divider></Divider>
-                                                <Typography variant="subtitle2"> Role Group: {g.label}</Typography>
+                                            <FormGroup key={"fg-" + g.label}>
+                                                <Divider key={"hl-" + g.label}></Divider>
+                                                <Typography
+                                                    variant="subtitle2"
+                                                    key={"header-" + g.label}>
+                                                    Role Group: {g.label}
+                                                </Typography>
                                                 <FormControlLabel
+                                                    key={"rg-" + g.label}
                                                     style={{marginLeft: "40%"}}
                                                     label={g.label}
                                                     control={
                                                         <Checkbox
+                                                            key={"cb-rg-" + g.label}
                                                             checked={checkboxState.checked}
                                                             indeterminate={checkboxState.indeterminate}
                                                             onChange={() =>
@@ -361,10 +367,12 @@ const BalanceControls = () => {
                                                     .map((r) => {
                                                         return (
                                                             <FormControlLabel
+                                                                key={"r-" + r.label}
                                                                 style={{marginLeft: "44%"}}
                                                                 label={r.label}
                                                                 control={
                                                                     <Checkbox
+                                                                        key={"cb-r" + r.label}
                                                                         checked={r.checked}
                                                                         onChange={() => handleRolesChange(r.id)}
                                                                     />
@@ -373,16 +381,20 @@ const BalanceControls = () => {
                                                         );
                                                     })}
                                             </FormGroup>
-                                        </>
-                                    );
+                                    )
                                 })}
                             </Grid>
                         </Grid>
                     </form>
                 </Box>
             </Card>
+            <ConfirmationDialog
+                title={"Do you want to balance teams now?"}
+                onConfirm={handleSubmit}
+                open={modalOpen}
+                onClose={() => setModalOpen(false)}/>
         </Grid>
-    );
+    )
 };
 
 export default BalanceControls;

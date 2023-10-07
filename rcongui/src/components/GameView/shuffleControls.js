@@ -2,6 +2,7 @@ import React, {useState} from "react";
 import {handle_http_errors, postData, showResponse} from "../../utils/fetchUtils";
 import {Box, Button, Card, FormControl, FormControlLabel, FormLabel, Grid, Radio, RadioGroup} from "@material-ui/core";
 import {ToggleButton, ToggleButtonGroup} from "@material-ui/lab";
+import ConfirmationDialog from "./ConfirmationDialog";
 
 const ShuffleControls = () => {
     /* TODO: should make an endpoint to provide these dynamically */
@@ -12,10 +13,10 @@ const ShuffleControls = () => {
     ];
 
     const [shuffleMethod, setShuffleMethod] = useState(METHODS[0].method);
+    const [modalOpen, setModalOpen] = useState(false);
 
     const handleChange = (event, method) => setShuffleMethod(method);
-    const handleSubmit = (e) => {
-        e.preventDefault();
+    const handleSubmit = () => {
         return postData(`${process.env.REACT_APP_API_URL}do_shuffle_teams`, {
             shuffle_method: shuffleMethod,
         })
@@ -55,10 +56,10 @@ const ShuffleControls = () => {
                                 </Grid>
 
                                 <Grid item>
-                                    <Button type="submit"
+                                    <Button
                                             variant="contained"
                                             color="primary"
-                                            onClick={handleSubmit}>
+                                            onClick={()=>setModalOpen(true)}>
                                         Shuffle Teams
                                     </Button>
                                 </Grid>
@@ -67,6 +68,11 @@ const ShuffleControls = () => {
                     </form>
                 </Box>
             </Card>
+            <ConfirmationDialog
+                title={"Do you want to shuffle teams now?"}
+                onConfirm={handleSubmit}
+                open={modalOpen}
+                onClose={() => setModalOpen(false)}/>
         </Grid>
     );
 };
