@@ -26,4 +26,4 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: user/app:latest
+          tags: cericmathey/hll_rcon_tool:latest
