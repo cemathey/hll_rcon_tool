@@ -1,0 +1,16 @@
+name: Update Fork
+on:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  update-fork:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Shurtu-gal/autoupdate-fork-action@v1
+        with:
+          github_token: ${{ secrets.BOT_TOKEN }}       
+          pr_filter: labelled
+          pr_label: fork-update
