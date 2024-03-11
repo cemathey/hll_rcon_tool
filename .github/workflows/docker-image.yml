@@ -2,8 +2,8 @@ name: ci
 
 on:
   push:
-    branches:
-      - "master"
+    tags:        
+      - '*'
 
 jobs:
   docker:
@@ -26,4 +26,4 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: cericmathey/hll_rcon_tool:latest
+          tags: cericmathey/hll_rcon_tool:latest,cericmathey/hll_rcon_tool:${{  github.ref_name }}
