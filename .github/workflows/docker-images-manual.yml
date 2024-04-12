@@ -1,4 +1,4 @@
-name: build-docker-images
+name: build-docker-images-manual
 
 on:
   workflow_dispatch:
