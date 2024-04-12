@@ -9,23 +9,38 @@ https://docs.djangoproject.com/en/3.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/3.0/ref/settings/
 """
+
 import logging
 import os
 import re
 import socket
+from subprocess import PIPE, run
 
 import sentry_sdk
 from sentry_sdk import configure_scope
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 
-from rcon.rcon import get_rcon
+from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
 
 try:
-    ENVIRONMENT = re.sub(
-        "[^0-9a-zA-Z]+", "", (get_rcon().get_name() or "default").strip()
-    )[:64]
-except:
+    TAG_VERSION = (
+        run(["git", "describe", "--tags"], stdout=PIPE, stderr=PIPE)
+        .stdout.decode()
+        .strip()
+    )
+except Exception:
+    TAG_VERSION = "unknown"
+
+HLL_MAINTENANCE_CONTAINER = os.getenv("HLL_MAINTENANCE_CONTAINER")
+
+
+try:
+    config = RconServerSettingsUserConfig.load_from_db()
+    ENVIRONMENT = re.sub("[^0-9a-zA-Z]+", "", (config.short_name or "default").strip())[
+        :64
+    ]
+except Exception:
     ENVIRONMENT = "undefined"
 
 LOGGING = {
@@ -33,7 +48,7 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "console": {
-            "format": f"[%(asctime)s][%(levelname)s][{ENVIRONMENT}] %(name)s "
+            "format": f"[%(asctime)s][%(levelname)s][{ENVIRONMENT}][{TAG_VERSION}] %(name)s "
             "%(filename)s:%(funcName)s:%(lineno)d | %(message)s",
         },
     },
@@ -130,16 +145,18 @@ SESSION_COOKIE_SAMESITE = "Lax"
 # Required as of Django 4.0 otherwise it causes CSRF issues
 # if we don't include the origin
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS.copy()
-from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
 
-rcon_config = RconServerSettingsUserConfig.load_from_db()
-if host := rcon_config.server_url:
-    host = str(host)
-    # Django doesn't like the trailing / in a URL
-    if host[-1] == "/":
-        CSRF_TRUSTED_ORIGINS.append(host[:-1])
-    else:
-        CSRF_TRUSTED_ORIGINS.append(host)
+if not HLL_MAINTENANCE_CONTAINER:
+    from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
+
+    rcon_config = RconServerSettingsUserConfig.load_from_db()
+    if host := rcon_config.server_url:
+        host = str(host)
+        # Django doesn't like the trailing / in a URL
+        if host[-1] == "/":
+            CSRF_TRUSTED_ORIGINS.append(host[:-1])
+        else:
+            CSRF_TRUSTED_ORIGINS.append(host)
 
 if DEBUG:
     # Chrome requires these to be set or it won't allow cookies to save between
@@ -150,6 +167,7 @@ if DEBUG:
     SESSION_COOKIE_SAMESITE = "None"
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -195,6 +213,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "rconweb.wsgi.application"
+ASGI_APPLICATION = "rconweb.asgi.application"
 
 
 # Database
