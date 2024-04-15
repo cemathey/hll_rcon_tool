@@ -7,9 +7,9 @@ from threading import Timer
 from typing import Final
 
 from discord_webhook import DiscordEmbed
-from discord.utils import escape_markdown
 
 import rcon.steam_utils as steam_utils
+from discord.utils import escape_markdown
 from rcon.cache_utils import invalidates
 from rcon.commands import CommandFailedError, HLLServerError
 from rcon.discord import (
@@ -25,6 +25,7 @@ from rcon.game_logs import (
     on_match_end,
     on_match_start,
 )
+from rcon.maps import LOG_MAP_NAMES_TO_MAP, UNKNOWN_MAP_NAME
 from rcon.message_variables import format_message_string, populate_message_variables
 from rcon.models import enter_session
 from rcon.player_history import (
@@ -58,7 +59,6 @@ from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
 from rcon.user_config.real_vip import RealVipUserConfig
 from rcon.user_config.vac_game_bans import VacGameBansUserConfig
 from rcon.user_config.webhooks import CameraWebhooksUserConfig
-from rcon.maps import UNKNOWN_MAP_NAME, LOG_MAP_NAMES_TO_MAP
 from rcon.utils import (
     DefaultStringFormat,
     MapsHistory,
@@ -201,7 +201,7 @@ def handle_new_match_start(rcon: Rcon, struct_log):
             try:
                 current_map = rcon.get_map().replace("_RESTART", "")
             except (CommandFailedError, HLLServerError):
-                current_map = "bla_"
+                current_map = UNKNOWN_MAP_NAME
                 logger.error("Unable to get current map")
 
         map_name_to_save = LOG_MAP_NAMES_TO_MAP.get(
@@ -261,7 +261,7 @@ def record_map_end(rcon: Rcon, struct_log):
     try:
         current_map = rcon.get_map()
     except (CommandFailedError, HLLServerError):
-        current_map = "bla_"
+        current_map = UNKNOWN_MAP_NAME
         logger.error("Unable to get current map")
 
     map_name = LOG_MAP_NAMES_TO_MAP.get(struct_log["sub_content"], UNKNOWN_MAP_NAME)
@@ -472,9 +472,9 @@ def update_player_steaminfo_on_connect(rcon, struct_log, _, steam_id_64: str):
         )
 
 
-pendingTimers: dict[str, list[tuple[RconInvalidNameActionType | None, Timer]]] = (
-    defaultdict(list)
-)
+pendingTimers: dict[
+    str, list[tuple[RconInvalidNameActionType | None, Timer]]
+] = defaultdict(list)
 
 
 @on_connected()

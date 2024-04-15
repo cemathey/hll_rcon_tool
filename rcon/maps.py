@@ -1,7 +1,7 @@
 import re
 from enum import Enum
 from logging import getLogger
-from typing import Iterable, Literal, Union, Sequence
+from typing import Iterable, Literal, Sequence, Union
 
 import pydantic
 from requests.structures import CaseInsensitiveDict
@@ -13,7 +13,7 @@ RE_LAYER_NAME = re.compile(
 )
 
 UNKNOWN_MAP_NAME = "unknown"
-
+UNKNOWN_MAP_TAG = "UNK"
 
 LOG_MAP_NAMES_TO_MAP = CaseInsensitiveDict(
     {
@@ -67,6 +67,7 @@ LEGACY_MAP_TAGS = CaseInsensitiveDict(
         "kharkov": "KHA",
         "driel": "DRL",
         "elalamein": "ELA",
+        UNKNOWN_MAP_NAME: UNKNOWN_MAP_TAG,
     }
 )
 
