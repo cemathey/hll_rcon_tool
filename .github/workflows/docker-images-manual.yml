@@ -30,7 +30,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: cericmathey/hll_rcon_tool:latest,cericmathey/hll_rcon_tool:${{ github.event.inputs.tag }}"
+          tags: cericmathey/hll_rcon_tool:latest,cericmathey/hll_rcon_tool:${{ github.event.inputs.tag }}
       - name: Build and push frontend
         uses: docker/build-push-action@v5
         with:
@@ -38,4 +38,4 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: cericmathey/hll_rcon_tool_frontend:latest,cericmathey/hll_rcon_tool_frontend:${{ github.event.inputs.tag }}"
+          tags: cericmathey/hll_rcon_tool_frontend:latest,cericmathey/hll_rcon_tool_frontend:${{ github.event.inputs.tag }}
