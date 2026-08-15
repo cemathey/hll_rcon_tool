@@ -68,11 +68,20 @@ class PunishDetails:
 
 
 @dataclass
+class Flag:
+    id: int
+    flag: str
+    comment: Optional[str]
+    modified: datetime
+
+
+@dataclass
 class PunishPlayer:
-    steam_id_64: str
+    player_id: str
     name: str
     squad: str
     team: str
+    flags: List[Flag] = field(default_factory=list)
     role: str = None
     lvl: int = None
     details: PunishDetails = None
@@ -80,7 +89,7 @@ class PunishPlayer:
     def short_repr(self):
         return (
             f"{self.__class__.__name__}"
-            f"(name={self.name}, lvl={self.lvl}, role={self.role})"
+            f"(name={self.name}, lvl={self.lvl}, role={self.role}, flags={self.flags})"
         )
 
 
@@ -102,22 +111,23 @@ class PunitionsToApply:
         try:
             if any(s.team == team and s.name == squad_name for s in self.squads_state):
                 return
-            self.squads_state.append(
-                ASquad(
-                    team=team,
-                    name=squad_name,
-                    players=[
-                        PunishPlayer(
-                            steam_id_64=p.get("steam_id_64"),
-                            name=p.get("name"),
-                            squad=p.get("unit_name"),
-                            team=p.get("team"),
-                            role=p.get("role"),
-                            lvl=p.get("level"),
-                        )
-                        for p in squad.get("players", [])
-                    ],
+
+            players = []
+            for player in squad.get("players", []):
+                profile = player.get("profile", {})
+                punish_player = PunishPlayer(
+                    player_id=player.get("player_id"),
+                    name=player.get("name"),
+                    squad=player.get("unit_name"),
+                    team=player.get("team"),
+                    flags=profile.get("flags") if profile else [],
+                    role=player.get("role"),
+                    lvl=player.get("level"),
                 )
+                players.append(punish_player)
+
+            self.squads_state.append(
+                ASquad(team=team, name=squad_name, players=players)
             )
         except:
             logger.exception("Unable to add squad info")
@@ -126,10 +136,10 @@ class PunitionsToApply:
         if len(o.warning) != 0:
             self.warning.extend(o.warning)
         for p in o.punish:
-            if not any(sp.steam_id_64 == p.steam_id_64 for sp in self.punish):
+            if not any(sp.player_id == p.player_id for sp in self.punish):
                 self.punish.append(p)
         for k in o.kick:
-            if not any(sk.steam_id_64 == k.steam_id_64 for sk in self.kick):
+            if not any(sk.player_id == k.player_id for sk in self.kick):
                 self.kick.append(k)
         for s in o.squads_state:
             if any(s.team == ss.team and s.name == ss.name for ss in self.squads_state):

@@ -12,9 +12,11 @@ class SteamUserConfig(BaseUserConfig):
 
     @staticmethod
     def save_to_db(values: SteamType, dry_run=False):
-        key_check(SteamType.__required_keys__, values.keys())
+        key_check(
+            SteamType.__required_keys__, SteamType.__optional_keys__, values.keys()
+        )
 
         validated_conf = SteamUserConfig(api_key=values.get("api_key"))
 
         if not dry_run:
-            set_user_config(SteamUserConfig.KEY(), validated_conf.model_dump())
+            set_user_config(SteamUserConfig.KEY(), validated_conf)

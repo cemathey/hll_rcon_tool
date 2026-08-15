@@ -1,0 +1,599 @@
+'use client'
+
+import {Column, ColumnDef} from '@tanstack/react-table'
+import {FactionEnum, Player, PlayerTeamAssociation, TeamEnum} from '@/types/player'
+import {MapLayer} from '@/types/mapLayer'
+import {IconHeader as Header} from './column-header'
+import {Status} from './player-status'
+import {isPlayerWithStatus} from './player/utils'
+import {Button} from '@/components/ui/button'
+import {useTranslation} from 'react-i18next'
+import {TeamIndicator} from '@/components/game/statistics/team-indicator'
+import {WeaponTypeBar} from "@/components/game/statistics/weapon-type-bar";
+import {getTeamFromAssociation} from "@/components/game/statistics/utils";
+import {HeartCrackIcon, HeartOffIcon, ScaleIcon, SkullIcon, ZapIcon} from "lucide-react";
+import {ColumnCategory} from "@/lib/tables";
+import {Awards} from "@/components/game/statistics/award";
+import {PlayerBaseWithAwards} from "@/pages/games/[id]";
+import { Level } from './level'
+import { FactionIndicator } from './faction-indicator'
+import {AvatarGroup} from '@/components/ui/avatar'
+
+const threeDigitsWidth = 40
+const fourDigitsWidth = 50
+
+function SortableHeader({ column, desc }: { column: Column<Player>; desc: string }) {
+  return (
+    <div className="text-right">
+      <Button
+        variant={'text'}
+        onClick={() => {
+          column.toggleSorting(column.getIsSorted() !== 'desc')
+        }}
+        className="px-0"
+      >
+        {desc}
+      </Button>
+    </div>
+  )
+}
+
+function pointColumns(completed: boolean): ColumnDef<Player>[] {
+  const { t } = useTranslation('game');
+
+  return [
+    ...completed ? [killCategoryColumn()] : [],
+    {
+      id: 'kills',
+      meta: { label: t('playersTable.kills'), category: ColumnCategory.GENERAL },
+      accessorKey: 'kills',
+      size: threeDigitsWidth,
+      header: function KillsHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            src={'/icons/roles/infantry.png'}
+            desc={t('playersTable.kills')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+    },
+    {
+      id: 'kills_and_assists',
+      meta: { label: t('playersTable.killsAndAssists'), category: ColumnCategory.GENERAL },
+      accessorKey: 'kills_and_assists',
+      size: threeDigitsWidth,
+      header: function SupportHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <div className="text-left">
+            <Button
+              variant={'text'}
+              onClick={() => {
+                column.toggleSorting(column.getIsSorted() === 'asc')
+              }}
+              className="px-0"
+            >
+              {t('playersTable.killsAndAssists').split(" ").map(w => w[0]).join("")}
+            </Button>
+          </div>
+        )
+      },
+    },
+    {
+      id: 'kill_death_ratio',
+      meta: { label: t('score.k/d'), category: ColumnCategory.GENERAL },
+      accessorKey: 'kill_death_ratio',
+      size: fourDigitsWidth,
+      header: function KDHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            icon={<ScaleIcon/>}
+            desc={t('score.k/d')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+      cell: ({row}) => {
+        const player = row.original;
+        return <div className={"text-right whitespace-pre"}>
+          {player.kill_death_ratio.toFixed(1)}
+        </div>;
+      },
+    },
+    {
+      id: 'deaths',
+      meta: { label: t('playersTable.deaths'), category: ColumnCategory.GENERAL },
+      accessorKey: 'deaths',
+      size: fourDigitsWidth,
+      header: function DeathsHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            src={'/icons/roles/medic.png'}
+            desc={t('playersTable.deaths')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+    },
+    {
+      id: 'deaths_and_redeploys',
+      meta: { label: t('playersTable.deathsAndRedeploys'), category: ColumnCategory.ADVANCED },
+      accessorKey: 'deaths_and_redeploys',
+      size: threeDigitsWidth,
+      header: function SupportHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <div className="text-left">
+            <Button
+              variant={'text'}
+              onClick={() => {
+                column.toggleSorting(column.getIsSorted() === 'asc')
+              }}
+              className="px-0"
+            >
+              {t('playersTable.deathsAndRedeploys').split(" ").map(w => w[0]).join("")}
+            </Button>
+          </div>
+        )
+      },
+    },
+    ...completed ? [deathCategoryColumn()] : [],
+    {
+      id: 'kills_per_minute',
+      meta: { label: t('playersTable.killsPerMinute'), category: ColumnCategory.ADVANCED},
+      accessorKey: 'kills_per_minute',
+      header: function KpmHeader({ column }) {
+        const { t } = useTranslation('game')
+        return <SortableHeader column={column} desc={t('playersTable.killsPerMinute')} />
+      },
+      size: 20,
+    },
+    {
+      id: 'deaths_per_minute',
+      meta: { label: t('playersTable.deathsPerMinute'), category: ColumnCategory.ADVANCED },
+      accessorKey: 'deaths_per_minute',
+      header: function KpmHeader({ column }) {
+        const { t } = useTranslation('game')
+        return <SortableHeader column={column} desc={t('playersTable.deathsPerMinute')} />
+      },
+      size: 20,
+    },
+    {
+      id: 'kills_streak',
+      meta: { label: t('score.killstreak'), category: ColumnCategory.ADVANCED },
+      accessorKey: 'kills_streak',
+      header: function KillStreakHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            icon={<ZapIcon/>}
+            desc={t('score.killstreak')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+      size: 20,
+    },
+    {
+      id: 'deaths_without_kill_streak',
+      meta: { label: t('score.deathstreak'), category: ColumnCategory.ADVANCED },
+      accessorKey: 'deaths_without_kill_streak',
+      header: function DeathStreakHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            icon={<SkullIcon/>}
+            desc={t('score.deathstreak')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+      size: 20,
+    },
+    {
+      id: 'teamkills',
+      meta: { label: t('score.teamkills'), category: ColumnCategory.ADVANCED },
+      accessorKey: 'teamkills',
+      header: function TeamkillsHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            icon={<HeartOffIcon/>}
+            desc={t('score.teamkills')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+      size: 20,
+    },
+    {
+      id: 'deaths_by_tk',
+      meta: { label: t('score.deathsByTeam'), category: ColumnCategory.ADVANCED },
+      accessorKey: 'deaths_by_tk',
+      header: function DeathsByTkHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            icon={<HeartCrackIcon/>}
+            desc={t('score.deathsByTeam')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+      size: 20,
+    },
+    {
+      id: 'combat',
+      meta: { label: t('playersTable.combat'), category: ColumnCategory.INGAME},
+      accessorKey: 'combat',
+      size: fourDigitsWidth,
+      header: function CombatHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            src={'/icons/roles/score_combat.png'}
+            desc={t('playersTable.combat')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+    },
+    {
+      id: 'offense',
+      meta: { label: t('playersTable.offense'), category: ColumnCategory.INGAME },
+      accessorKey: 'offense',
+      size: fourDigitsWidth,
+      header: function OffenseHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            src={'/icons/roles/score_offensive.png'}
+            desc={t('playersTable.offense')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+    },
+    {
+      id: 'defense',
+      meta: { label: t('playersTable.defense'), category: ColumnCategory.INGAME },
+      accessorKey: 'defense',
+      size: fourDigitsWidth,
+      header: function DefenseHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            src={'/icons/roles/score_defensive.png'}
+            desc={t('playersTable.defense')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+    },
+    {
+      id: 'support',
+      meta: { label: t('playersTable.support'), category: ColumnCategory.INGAME },
+      accessorKey: 'support',
+      size: fourDigitsWidth,
+      header: function SupportHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <Header
+            src={'/icons/roles/score_support.png'}
+            desc={t('playersTable.support')}
+            className={"text-right"}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() !== 'desc')
+            }}
+          />
+        )
+      },
+    },
+    {
+      id: 'vehicle_kills',
+      meta: { label: t('playersTable.vehicle_kills'), category: ColumnCategory.INGAME },
+      accessorKey: 'vehicle_kills',
+      size: threeDigitsWidth,
+      header: function SupportHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <div className="text-left">
+            <Button
+              variant={'text'}
+              onClick={() => {
+                column.toggleSorting(column.getIsSorted() === 'asc')
+              }}
+              className="px-0"
+            >
+              {t('playersTable.vehicle_kills').split(" ").map(w => w[0]).join("")}
+            </Button>
+          </div>
+        )
+      },
+    },
+    {
+      id: 'vehicles_destroyed',
+      meta: { label: t('playersTable.vehicles_destroyed'), category: ColumnCategory.INGAME },
+      accessorKey: 'vehicles_destroyed',
+      size: threeDigitsWidth,
+      header: function SupportHeader({ column }) {
+        const { t } = useTranslation('game')
+        return (
+          <div className="text-left">
+            <Button
+              variant={'text'}
+              onClick={() => {
+                column.toggleSorting(column.getIsSorted() === 'asc')
+              }}
+              className="px-0"
+            >
+              {t('playersTable.vehicles_destroyed').split(" ").map(w => w[0]).join("")}
+            </Button>
+          </div>
+        )
+      },
+    },
+  ];
+}
+
+const playerColumn = (handlePlayerClick: (id: string) => void): ColumnDef<Player> => ({
+  id: 'player',
+  accessorKey: 'player',
+  header: function NameHeader({ column }) {
+    const { t } = useTranslation('game')
+    return (
+      <div className="text-left">
+        <Button
+          variant={'text'}
+          onClick={() => {
+            column.toggleSorting(column.getIsSorted() === 'asc')
+          }}
+          className="px-0"
+        >
+          {t('playersTable.player')}
+        </Button>
+      </div>
+    )
+  },
+  cell: ({ row }) => {
+    const name = String(row.getValue('player'))
+    const id = String(row.original.player_id)
+
+    return (
+      <div className="text-left">
+        <Button
+          variant={'text'}
+          className="pl-0"
+          onClick={() => {
+            handlePlayerClick(id)
+          }}
+        >
+          {name}
+        </Button>
+      </div>
+    )
+  },
+  filterFn: (row, columnId: string, filterValue: string[]) => {
+    if (filterValue === undefined || filterValue.length === 0) {
+      return true
+    }
+    const value: string = row.getValue(columnId)
+    return filterValue.some((v: string) => value.toLowerCase().includes(v.toLowerCase()))
+  },
+  enableHiding: false,
+})
+
+const awardColumn = (): ColumnDef<Player | PlayerBaseWithAwards | Player>  => {
+  const { t } = useTranslation('game');
+  return {
+    id: 'award',
+    meta: {label: t('playersTable.awards'), category: ColumnCategory.GENERAL},
+    header: function NameHeader() {
+      const {t} = useTranslation('game')
+      return <div className="text-right">{t('playersTable.awards')}</div>
+    },
+    cell: ({row}) => {
+      return 'awards' in row.original ? <Awards player={row.original}/> : null
+    },
+    size: 20,
+  }
+};
+
+const teamColumn = (mapLayer?: MapLayer): ColumnDef<Player> => {
+  const { t } = useTranslation('game');
+
+  return {
+    id: 'team',
+    meta: { label: t('playersTable.team'), category: ColumnCategory.GENERAL },
+    accessorKey: 'team',
+    header: function TeamHeader() {
+      const {t} = useTranslation('game')
+      return <div className={"text-center"}>{t('playersTable.team')}</div>
+    },
+    size: 40,
+    filterFn: (row, columnId, filterValue) => {
+      if (!filterValue || filterValue === 'all') {
+        return true
+      }
+      const cellValue: PlayerTeamAssociation = row.getValue(columnId);
+      return getTeamFromAssociation(cellValue) === filterValue;
+    },
+    cell: ({row}) => {
+      const player = row.original;
+      if ("faction" in player && "status" in player) {
+        return <div className={"text-center"}>
+        <FactionIndicator faction={player.faction} status={player.status}/>
+      </div>;
+      }
+
+      const team = getTeamFromAssociation(player.team)
+      const sides: Array<TeamEnum.ALLIES | TeamEnum.AXIS> =
+        team === TeamEnum.MIXED
+          ? [TeamEnum.ALLIES, TeamEnum.AXIS]
+          : team === TeamEnum.ALLIES || team === TeamEnum.AXIS
+            ? [team]
+            : []
+
+      if (mapLayer && sides.length) {
+        return (
+          <AvatarGroup className="justify-center">
+            {sides.map((side) => (
+              <FactionIndicator
+                key={side}
+                className="bg-background"
+                faction={mapLayer.map[side].name as FactionEnum}
+              />
+            ))}
+          </AvatarGroup>
+        )
+      }
+
+      if (mapLayer) {
+        return (
+          <AvatarGroup className="justify-center">
+            <FactionIndicator className="bg-background" />
+          </AvatarGroup>
+        )
+      }
+
+      return <div className={"text-center"}>
+      <TeamIndicator team={team}/>
+    </div>;
+    },
+  };
+}
+
+const killCategoryColumn = (): ColumnDef<Player> => {
+  const { t } = useTranslation('game');
+
+  return {
+    id: 'kills_by_category',
+    meta: { label: t('playersTable.killsByCategory'), category: ColumnCategory.GENERAL },
+    accessorKey: 'kills_by_category',
+    header: function KillCategoryHeader() {
+      const {t} = useTranslation('game')
+      return <div>{t('playersTable.killsByCategory')}</div>
+    },
+    size: 125,
+    cell: ({row}) => {
+      const player = row.original;
+      return <WeaponTypeBar totalKills={player.kills} killsByType={player.kills_by_type}/>;
+    },
+  }
+};
+
+const deathCategoryColumn = (): ColumnDef<Player> => {
+  const { t } = useTranslation('game');
+
+  return {
+    id: 'deaths_by_category',
+    meta: { label: t('playersTable.deathsByCategory'), category: ColumnCategory.GENERAL },
+    accessorKey: 'deaths_by_category',
+    header: function DeathCategoryHeader() {
+      const {t} = useTranslation('game')
+      return <div>{t('playersTable.deathsByCategory')}</div>
+    },
+    size: 125,
+    cell: ({row}) => {
+      const player = row.original;
+      return <WeaponTypeBar totalKills={player.deaths} killsByType={player.deaths_by_type}/>;
+    },
+  }
+};
+
+const statusColumn: ColumnDef<Player> = {
+  id: 'status',
+  accessorKey: 'status',
+  header: function StatusHeader() {
+    const { t } = useTranslation('game')
+    return <div className="sr-only w-4">{t('playersTable.status')}</div>
+  },
+  size: 0,
+  filterFn: (row, columnId, filterValue) => {
+    if (!filterValue || filterValue === 'all') {
+      return true
+    }
+    const cellValue = row.getValue(columnId)
+    return cellValue === filterValue
+  },
+  cell: ({ row }) => null,
+  enableHiding: false,
+}
+
+const levelColumn = (): ColumnDef<Player> => {
+  const { t } = useTranslation('game')
+
+  return {
+    id: 'level',
+    accessorKey: 'level',
+    meta: { label: t('playersTable.level'), category: ColumnCategory.GENERAL },
+    size: threeDigitsWidth,
+    header: function LevelHeader({ column }) {
+      const { t } = useTranslation('game')
+      return (
+        <div className="text-left">
+          <Button
+            variant={'text'}
+            onClick={() => {
+              column.toggleSorting(column.getIsSorted() === 'asc')
+            }}
+            className="px-0"
+          >
+            {t('playersTable.level')}
+          </Button>
+        </div>
+      )
+    },
+    cell: ({ row }) => {
+      const player = row.original
+      return <div className='text-center font-bold'><Level level={player.level} /></div>
+    },
+  }
+}
+
+export const getLiveGameColumns = (handlePlayerClick: (id: string) => void): ColumnDef<Player>[] => [
+  statusColumn,
+  teamColumn(),
+  levelColumn(),
+  playerColumn(handlePlayerClick),
+  ...pointColumns(false),
+]
+
+export const getCompletedGameColumns = (
+  handlePlayerClick: (id: string) => void,
+  mapLayer: MapLayer,
+): ColumnDef<Player | PlayerBaseWithAwards>[] => [teamColumn(mapLayer), levelColumn(), playerColumn(handlePlayerClick), awardColumn(), ...pointColumns(true)]

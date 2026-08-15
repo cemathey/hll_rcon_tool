@@ -1,21 +1,26 @@
 import inspect
-import orjson
 import logging
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from itertools import islice
-from typing import Any, Generic, Iterable, TypeVar, Iterable
+from typing import Any, Callable, Generic, Iterable, Iterator, Optional, TypeVar, overload
 
+import hllrcon
+import orjson
 import redis
 import redis.exceptions
 
 from rcon.cache_utils import get_redis_pool
-from rcon.types import GetDetailedPlayer, MapInfo
+from rcon.game.base import GameProfile
+from rcon.game.registry import game_switch
+from rcon.models import GameLayout
+from rcon.types import GameEnum, GetDetailedPlayer, MapInfo, PlayerInfoType, PlayerStat, PlayerStatsType, StructuredLogLineWithMetaData
+from rcon.maps import Layer, parse_map_string, parse_map_string_attacker, UNKNOWN_MAP_NAME, Team
 
 logger = logging.getLogger("rcon")
 
-STEAMID = "steam_id_64"
+PLAYER_ID = "player_id"
 NAME = "name"
 ROLE = "role"
 
@@ -51,18 +56,12 @@ ALL_ROLES = (
     "crewman",
     "spotter",
     "sniper",
+    "artilleryobserver",
+    "operator",
+    "gunner",
 )
 
 ALL_ROLES_KEY_INDEX_MAP = {v: i for i, v in enumerate(ALL_ROLES)}
-
-
-def get_current_map(rcon):
-    map_ = rcon.get_map()
-
-    if map_.endswith("_RESTART"):
-        map_ = map_.replace("_RESTART", "")
-
-    return map_
 
 
 T = TypeVar("T")
@@ -238,72 +237,154 @@ class Stream(Generic[T]):
 
 class FixedLenList(Generic[T]):
     def __init__(
-        self, key, max_len=100, serializer=orjson.dumps, deserializer=orjson.loads
-    ):
+        self,
+        key: str,
+        max_len: int = 100,
+        serializer: Callable[[T], bytes | str] = orjson.dumps,
+        deserializer: Callable[[bytes | str], T] = orjson.loads,
+    ) -> None:
         self.red = redis.StrictRedis(connection_pool=get_redis_pool())
         self.max_len = max_len
         self.serializer = serializer
         self.deserializer = deserializer
         self.key = key
 
-    def add(self, obj):
+    def add(self, obj: T) -> None:
+        """Push to the left and trim to max_len."""
         self.red.lpush(self.key, self.serializer(obj))
         self.red.ltrim(self.key, 0, self.max_len - 1)
 
-    def remove(self, obj):
+    def remove(self, obj: T) -> None:
+        """Remove all occurrences of obj."""
         self.red.lrem(self.key, 0, self.serializer(obj))
 
-    def update(self, index, obj):
+    def update(self, index: int, obj: T) -> None:
+        """Replace the element at index."""
         self.red.lset(self.key, index, self.serializer(obj))
 
-    def __getitem__(self, index: slice | int) -> T:
+    def lpush(self, obj: T) -> None:
+        """Push to the left (no trimming)."""
+        self.red.lpush(self.key, self.serializer(obj))
+
+    def lpop(self) -> T | None:
+        """Pop from the left. Returns None if empty."""
+        val = self.red.lpop(self.key)
+        if val is None:
+            return None
+        return self.deserializer(val)
+
+    @overload
+    def __getitem__(self, index: int) -> T: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[T]: ...
+
+    def __getitem__(self, index: slice | int) -> T | list[T]:
         if isinstance(index, slice):
-            if index.step:
+            if index.step is not None:
                 raise ValueError("Step is not supported")
-            end = index.stop or -1
             start = index.start or 0
-            return [self.deserializer(o) for o in self.red.lrange(self.key, start, end)]
+            end = index.stop if index.stop is not None else -1
+            return [
+                self.deserializer(o)
+                for o in self.red.lrange(self.key, start, end)
+            ]
+
         val = self.red.lindex(self.key, index)
         if val is None:
             raise IndexError("Index out of bound")
         return self.deserializer(val)
 
-    def lpop(self):
-        val = self.red.lpop(self.key)
+    def __setitem__(self, index: int, obj: T) -> None:
+        self.update(index, obj)
+
+    def __delitem__(self, index: int) -> None:
+        val = self.red.lindex(self.key, index)
         if val is None:
-            return val
-        return self.deserializer(val)
+            raise IndexError("Index out of bound")
+        self.red.lrem(self.key, 1, val)
 
-    def lpush(self, obj):
-        self.red.lpush(self.key, self.serializer(obj))
-
-    def __iter__(self):
+    def __iter__(self) -> Iterator[T]:
         for o in self.red.lrange(self.key, 0, -1):
             yield self.deserializer(o)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.red.llen(self.key)
+
+    def __contains__(self, obj: T) -> bool:
+        # Note: this is O(N) – fine for modest max_len
+        return self.serializer(obj) in self.red.lrange(self.key, 0, -1)
+
+    def clear(self) -> None:
+        self.red.delete(self.key)
+
+def logs_deserializer(data: bytes | str) -> StructuredLogLineWithMetaData:
+    """
+    A custom deserializer that ensures conversion of datetime strings
+    to datetime.datetime objects
+    """
+    obj = orjson.loads(data)
+
+    if "event_time" in obj:
+        if isinstance(obj["event_time"], (int, float)):
+            obj["event_time"] = datetime.fromtimestamp(obj["event_time"])
+        elif isinstance(obj["event_time"], str):
+            obj["event_time"] = datetime.fromisoformat(obj["event_time"])
+
+    return obj
+
+class LogsHistory(FixedLenList[StructuredLogLineWithMetaData]):
+    def __init__(self, key: str = "logs_history", max_len: int = 100_000):
+        super().__init__(key, max_len, deserializer=logs_deserializer)
 
 
 class MapsHistory(FixedLenList[MapInfo]):
     def __init__(self, key="maps_history", max_len=500):
         super().__init__(key, max_len)
 
-    def save_map_end(self, old_map=None, end_timestamp: int = None):
-        ts = end_timestamp or datetime.now().timestamp()
+    def get_current_map(self) -> MapInfo | None:
+        try:
+            return self[0]
+        except IndexError:
+            return None
+
+    def save_map_end(self, old_map: str | None = None, end_timestamp: int | None = None):
+        ts = end_timestamp or int(datetime.now(tz=UTC).timestamp())
         logger.info("Saving end of map %s at time %s", old_map, ts)
         prev = self.lpop() or MapInfo(
-            name=old_map, start=None, end=None, guessed=True, player_stats=dict()
+            name=old_map,
+            start=None,
+            end=None,
+            guessed=True,
+            player_stats=dict(),
+            game_layout={"requested": [], "set": []},
+            cap_flips=[],
+            match_time=0,
         )
         prev["end"] = ts
         self.lpush(prev)
         return prev
 
-    def save_new_map(self, new_map, guessed=True, start_timestamp: int = None):
-        ts = start_timestamp or datetime.now().timestamp()
+    def save_new_map(
+        self,
+        new_map,
+        guessed=True,
+        start_timestamp: int | None = None,
+        game_layout: GameLayout | None = None,
+        match_time: int = 0,
+    ):
+        ts = start_timestamp or int(datetime.now(tz=UTC).timestamp())
         logger.info("Saving start of new map %s at time %s", new_map, ts)
+        game_layout = game_layout or GameLayout(requested=[], set=[])
         new = MapInfo(
-            name=new_map, start=ts, end=None, guessed=guessed, player_stats=dict()
+            name=new_map,
+            start=ts,
+            end=None,
+            guessed=guessed,
+            player_stats=dict(),
+            game_layout=game_layout,
+            cap_flips=[],
+            match_time=match_time,
         )
         self.add(new)
         return new
@@ -326,6 +407,8 @@ class ApiKey:
         if not REDIS_PARTS["PORT"]:
             raise ValueError("HLL_REDIS_PORT must be set")
 
+        # For the multi server stuff (server discovery, forwarding, etc.)
+        # they must share the same redis database for this, db 0 is unused by default
         self.red = redis.StrictRedis(
             host=REDIS_PARTS["HOST"], port=REDIS_PARTS["PORT"], db=0
         )
@@ -346,7 +429,7 @@ class ApiKey:
     def delete_key(self):
         self.red.delete(self.key)
 
-    def get_all_keys(self):
+    def get_all_keys(self) -> dict[str, str]:
         return {
             k.decode(): self.red.get(k.decode()).decode()
             for k in self.red.keys(f"{self.key_prefix}*")
@@ -356,6 +439,7 @@ class ApiKey:
 def get_server_number() -> str:
     """Get the CRCON server number"""
     server_number = os.getenv("SERVER_NUMBER")
+    # TODO: enforce that this is an int
     if not server_number:
         # Shouldn't get here because SERVER_NUMBER is a mandatory ENV Var
         raise ValueError("SERVER_NUMBER is not set")
@@ -395,117 +479,240 @@ def dict_differences(old: dict[Any, Any], new: dict[Any, Any]) -> dict[Any, Any]
     return diff
 
 
-def is_invalid_name_whitespace(name: str) -> bool:
-    return name.endswith(" ")
-
-
-def is_invalid_name_pineapple(name: str) -> bool:
-    return len(name) == 20 and name.endswith("?")
-
-
-def default_player_info_dict(player) -> GetDetailedPlayer:
+def default_player_info_dict() -> GetDetailedPlayer:
     return {
-        "name": player,
-        "steam_id_64": "",
+        "name": "",
+        "player_id": "",
         "profile": None,
         "is_vip": False,
         "unit_id": None,
         "unit_name": None,
         "loadout": None,
         "team": None,
+        "faction": None,
         "role": None,
         "kills": 0,
         "deaths": 0,
+        "team_kills": 0,
+        "vehicle_kills": 0,
+        "vehicles_destroyed": 0,
         "combat": 0,
         "offense": 0,
         "defense": 0,
         "support": 0,
         "level": 0,
+        "platform": "",
+        "eos_id": "",
+        "steam_id": None,
+        "world_position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+        },
+        "clan_tag": "",
+        "map_playtime_seconds": 0,
     }
 
 
-def parse_raw_player_info(raw: str, player) -> GetDetailedPlayer:
+def parse_raw_player_info(raw: PlayerInfoType, game: GameEnum) -> GetDetailedPlayer:
     """Parse the result of the playerinfo command from the game server"""
 
-    """
-        Name: T17 Scott
-        steamID64: 01234567890123456
-        Team: Allies            # "None" when not in team
-        Role: Officer
-        Unit: 0 - Able          # Absent when not in unit
-        Loadout: NCO            # Absent when not in team
-        Kills: 0 - Deaths: 0
-        Score: C 50, O 0, D 40, S 10
-        Level: 34
+    data = default_player_info_dict()
 
-    """
-
-    data = default_player_info_dict(player)
-    raw_data = {}
-
-    for line in raw.split("\n"):
-        if not line:
-            continue
-        if ": " not in line:
-            logger.warning("Invalid info line: %s", line)
-            continue
-
-        key, val = line.split(": ", 1)
-        raw_data[key.lower()] = val
-
-    logger.debug(raw_data)
     # Remap keys and parse values
-    data[STEAMID] = raw_data.get("steamid64")  # type: ignore
-    data["team"] = raw_data.get("team", "None")
-    if raw_data["role"].lower() == "armycommander":
-        data["unit_id"], data["unit_name"] = (-1, "Commmand")
+    data[NAME] = raw[NAME]
+    data[PLAYER_ID] = raw["iD"]
+
+    faction_cls = game_switch(game, hllrcon.HLLFaction, hllrcon.HLLVFaction)
+    role_cls = game_switch(game, hllrcon.HLLRole, hllrcon.HLLVRole)
+
+    try:
+        faction = faction_cls.by_id(raw["team"])
+    except ValueError:
+        logger.exception("Unknown team %s", raw["team"])
+        faction = None
+    try:
+        role = role_cls.by_id(raw["role"])
+    except ValueError:
+        logger.exception("Unknown role %s", raw["role"])
+        role = None
+
+    data["faction"] = faction.short_name.lower() if faction else None
+    data["team"] = Team.from_hllrcon(faction.team).value if faction else None
+    data["role"] = role.name.lower() if role else None
+    data["loadout"] = raw["loadout"].lower()
+    data["level"] = int(raw["level"])
+    data["kills"] = int(raw["stats"]["infantryKills"])
+    data["deaths"] = int(raw["stats"]["deaths"])
+    data["team_kills"] = int(raw["stats"]["teamKills"])
+    data["vehicle_kills"] = int(raw["stats"]["vehicleKills"])
+    data["vehicles_destroyed"] = int(raw["stats"]["vehiclesDestroyed"])
+
+    if role is role_cls.COMMANDER:
+        data["unit_id"], data["unit_name"] = (-1, "command")
+    elif not raw["platoon"]:
+        data["unit_id"], data["unit_name"] = (0, "unassigned")
     else:
         data["unit_id"], data["unit_name"] = (
-            raw_data.get("unit").split(" - ")  # type: ignore
-            if raw_data.get("unit")
-            else ("None", None)
+            ord(raw["platoon"][0]) - ord("A"),
+            raw["platoon"].lower(),
         )
-    data["kills"], data["deaths"] = (  # type: ignore
-        raw_data.get("kills").split(" - Deaths: ")  # type: ignore
-        if raw_data.get("kills")
-        else ("0", "0")
-    )
-    for k in ["role", "loadout", "level"]:
-        data[k] = raw_data.get(k)
 
-    scores = dict(
-        [
-            score.split(" ", 1)
-            for score in raw_data.get("score", "C 0, O 0, D 0, S 0").split(", ")
-        ]
-    )
-    map_score = {"C": "combat", "O": "offense", "D": "defense", "S": "support"}
-    for key, val in map_score.items():
-        data[map_score[key]] = scores.get(key, "0")
+    data["combat"] = int(raw["scoreData"]["cOMBAT"])
+    data["offense"] = int(raw["scoreData"]["offense"])
+    data["defense"] = int(raw["scoreData"]["defense"])
+    data["support"] = int(raw["scoreData"]["support"])
 
-    # Typecast values
-    # cast strings to lower
-    for key in ["team", "unit_name", "role", "loadout"]:
-        data[key] = data[key].lower() if data.get(key) else None
-
-    # cast string numbers to ints
-    for key in [
-        "kills",
-        "deaths",
-        "level",
-        "combat",
-        "offense",
-        "defense",
-        "support",
-        "unit_id",
-    ]:
-        try:
-            data[key] = int(data[key])
-        except (ValueError, TypeError):
-            data[key] = 0
+    data["platform"] = raw["platform"]
+    data["clan_tag"] = raw["clanTag"]
+    data["eos_id"] = game_switch(
+        game,
+        lambda: raw.get("eosId", ""),
+        lambda: data[PLAYER_ID]
+    )()
+    data["steam_id"] = game_switch(
+        game,
+        lambda: data[PLAYER_ID] if len(data[PLAYER_ID]) == 17 else None,
+        lambda: raw.get("steamId", None)
+    )()
+    data["world_position"] = raw["worldPosition"]
 
     return data
 
+# ── Field lists (update these when new stats are introduced) ─────────────────
+GAME_LOG_STAT_FIELDS: list[str] = [
+    "kills",
+    "kills_streak",
+    "deaths",
+    "deaths_without_kill_streak",
+    "teamkills",
+    "teamkills_streak",
+    "deaths_by_tk",
+    "deaths_by_tk_streak",
+    "nb_vote_started",
+    "nb_voted_yes",
+    "nb_voted_no",
+    "time_seconds",
+    "kills_per_minute",
+    "deaths_per_minute",
+    "kill_death_ratio",
+    "longest_life_secs",
+    "shortest_life_secs",
+    "weapons",
+    "most_killed",
+    "death_by",
+    "death_by_weapons",
+]
+
+TEMP_FIELDS: dict[str, Optional[str]] = {
+    "combat": "p_combat",
+    "offense": "p_offense",
+    "defense": "p_defense",
+    "support": "p_support",
+    "vehicle_kills": "p_vehicle_kills",
+    "vehicles_destroyed": "p_vehicles_destroyed",
+    "kills_and_assists": "p_kills_and_assists",
+    "deaths_and_redeploys": "p_deaths_and_redeploys",
+    "level": None,
+    "units": None,
+}
+
+def get_temp_default_stats(existing: Optional[PlayerStatsType]) -> PlayerStat:
+    """Return temp stat defaults (p_* [shortly for prev] fields reset to 0)."""
+    if existing is not None:
+        return {
+            "combat": existing.combat,
+            "p_combat": 0,
+            "offense": existing.offense,
+            "p_offense": 0,
+            "defense": existing.defense,
+            "p_defense": 0,
+            "support": existing.support,
+            "p_support": 0,
+            "vehicle_kills": existing.vehicle_kills,
+            "p_vehicle_kills": 0,
+            "vehicles_destroyed": existing.vehicles_destroyed,
+            "p_vehicles_destroyed": 0,
+            "kills_and_assists": existing.kills,
+            "p_kills_and_assists": 0,
+            "deaths_and_redeploys": existing.deaths,
+            "p_deaths_and_redeploys": 0,
+            "units": existing.units,
+            "p_unit": existing.p_unit,
+            "level": existing.level,
+            "p_coord": existing.p_coord,
+            "has_spawned": existing.has_spawned,
+            "names": existing.names,
+            "status": existing.status
+        }
+    return {
+        "combat": 0,
+        "p_combat": 0,
+        "offense": 0,
+        "p_offense": 0,
+        "defense": 0,
+        "p_defense": 0,
+        "support": 0,
+        "p_support": 0,
+        "vehicle_kills": 0,
+        "p_vehicle_kills": 0,
+        "vehicles_destroyed": 0,
+        "p_vehicles_destroyed": 0,
+        "kills_and_assists": 0,
+        "p_kills_and_assists": 0,
+        "deaths_and_redeploys": 0,
+        "p_deaths_and_redeploys": 0,
+        "units": [],
+        "p_unit": {"ts": 0, "team": -1, "squad": -1, "role": -1},
+        "level": 0,
+        "p_coord": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "has_spawned": False,
+        "names": [],
+        "status": "offline"
+    }
+
+def get_default_player_stats() -> PlayerStatsType:
+    return {
+        "id": 0,
+        "player_id": "",
+        "player": "",
+        "platform": None,
+        "steaminfo": None,
+        "map_id": 0,
+        "kills": 0,
+        "kills_streak": 0,
+        "deaths": 0,
+        "deaths_without_kill_streak": 0,
+        "teamkills": 0,
+        "teamkills_streak": 0,
+        "deaths_by_tk": 0,
+        "deaths_by_tk_streak": 0,
+        "nb_vote_started": 0,
+        "nb_voted_yes": 0,
+        "nb_voted_no": 0,
+        "time_seconds": 0,
+        "last_spawn": None,
+        "kills_per_minute": 0,
+        "deaths_per_minute": 0,
+        "kill_death_ratio": 0,
+        "longest_life_secs": 0,
+        "shortest_life_secs": 0,
+        "combat": 0,
+        "offense": 0,
+        "defense": 0,
+        "support": 0,
+        "most_killed": {},
+        "death_by": {},
+        "weapons": {},
+        "death_by_weapons": {},
+        "team": None,
+        "units": [],
+        "level": 0,
+        "vehicles_destroyed": 0,
+        "vehicle_kills": 0,
+        "kills_and_assists": 0,
+        "deaths_and_redeploys": 0,
+    }
 
 # https://docs.python.org/3.12/library/itertools.html#itertools.batched
 def batched(iterable: Iterable[Any], n: int):
@@ -527,3 +734,146 @@ class SafeStringFormat(dict):
             called_from.code_context,
         )
         return f"{{{key}}}"
+
+
+class SingletonMeta(type):
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(SingletonMeta, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
+class MissingType(metaclass=SingletonMeta):
+    def __bool__(self):
+        return False
+
+    def __iter__(self):
+        return
+        yield
+
+    def __repr__(self):
+        return "MISSING"
+
+
+MISSING = MissingType()
+
+
+def server_numbers_to_mask(*server_numbers):
+    result = 0
+    for number in server_numbers:
+        if number <= 0 or number > 32:
+            raise ValueError("Server number must be between 1 and 32")
+        # Shift the positive bit to create a mask and then merge that mask with the result
+        # eg. [1, 2, 4] -> 0001, 0010, 1000 -> 1011
+        result |= 1 << (number - 1)
+    return result
+
+
+def mask_to_server_numbers(mask: int) -> set[int]:
+    server_numbers = set()
+    # bin() returns '0b...', so we slice of the first two characters and then iterate over the remaining
+    # characters from back to front.
+    # eg. bin(7) -> '0b1011' -> [1, 1, 0, 1] -> [1, 2, 4]
+    for i, c in enumerate(bin(mask)[:1:-1], 1):
+        if c == "1":
+            server_numbers.add(i)
+    return server_numbers
+
+
+def humanize_timedelta(td: timedelta | datetime | None) -> str:
+    """Converts a timedelta to a human-readable string.
+
+    Example:
+    timedelta(-60*60*24*2.5) => "2 days ago"
+    timedelta(60*60 - 5) => "in an hour"
+    None => "forever"
+    """
+    if td is None:
+        return "forever"
+
+    if isinstance(td, datetime):
+        td = td - datetime.now(tz=timezone.utc)
+
+    seconds = int(td.total_seconds())
+    if seconds < 0:
+        fmt = "{} ago"
+        seconds = abs(seconds)
+    else:
+        fmt = "in {}"
+
+    minutes = seconds / 60
+    if int(minutes) <= 1:
+        return fmt.format("a minute")
+    elif minutes < 59:
+        return fmt.format(f"{int(minutes)} minutes")
+
+    hours = minutes / 60
+    if int(hours) <= 1:
+        return fmt.format(f"an hour")
+    elif hours < 23.5:
+        return fmt.format(f"{int(hours)} hours")
+
+    days = hours / 24
+    if int(days) <= 1:
+        return fmt.format(f"a day")
+    elif days < 6.9:
+        return fmt.format(f"{int(days)} days")
+
+    weeks = days / 7
+    if int(weeks) <= 1:
+        return fmt.format(f"a week")
+    elif days < 29.9:
+        return fmt.format(f"{int(weeks)} weeks")
+
+    months = days / 30
+    if int(months) <= 1:
+        return fmt.format(f"a month")
+    elif months < 11.95:
+        return fmt.format(f"{int(months)} months")
+
+    years = days / 365
+    if int(years) <= 1:
+        return fmt.format(f"a year")
+    return fmt.format("{} years")
+
+
+def strtobool(val) -> bool:
+    """Convert a string representation of truth to true (1) or false (0).
+    True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
+    are 'n', 'no', 'f', 'false', 'off', and '0'.  Raises ValueError if
+    'val' is anything else.
+    """
+    if val is None:
+        return False
+
+    if isinstance(val, bool):
+        return val
+
+    # sourced from https://stackoverflow.com/a/18472142 with modification
+    val = val.lower()
+    if val in ("y", "yes", "t", "true", "on", "1"):
+        return True
+    elif val in ("n", "no", "f", "false", "off", "0"):
+        return False
+    else:
+        raise ValueError("invalid truth value %r" % (val,))
+    
+
+def guess_map_from_log(
+    log: StructuredLogLineWithMetaData, game_profile: GameProfile
+) -> Layer:
+    """Guess a layer from a match log using the selected game's catalog."""
+    try:
+        name, env, game_mode = parse_map_string(log["raw"])
+        attacker = parse_map_string_attacker(log["raw"])
+    except (KeyError, TypeError, ValueError):
+        return game_profile.parse_layer_or_unknown(UNKNOWN_MAP_NAME)
+
+    return game_profile.resolve_layer(
+        map_name=name,
+        game_mode=game_mode,
+        environment=env,
+        attacker=attacker,
+    )

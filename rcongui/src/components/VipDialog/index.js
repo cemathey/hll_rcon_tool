@@ -1,137 +1,132 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  Box,
   Button,
-  ButtonGroup,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  Grid,
-} from "@material-ui/core";
+} from "@mui/material";
 
-import { DateTimePicker, MuiPickersUtilsProvider } from "@material-ui/pickers";
-import MomentUtils from "@date-io/moment";
-import moment from "moment";
+import { DesktopDateTimePicker } from '@mui/x-date-pickers/DesktopDateTimePicker';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { PlayerVipSummary } from "./PlayerVipSummary";
 import { ForwardCheckBox } from "../commonComponent";
+import { TimePickerButtons } from "@/components/shared/TimePickerButtons";
+import dayjs from "dayjs";
 
-// this array could probably be moved to a config file
-const vipButtons = [[48, "hours"], [3, "days"], [7, "days"], [30, "days"], [60, "days"], [90, "days"]];
+const presetTimes = [
+  [2, "hours"],
+  [1, "day"],
+  [1, "week"],
+  [1, "month"]
+];
 
-const VipTimeButtons = ({
-  amount,
-  unit,
-  expirationTimestamp,
-  setExpirationTimestamp,
-}) => {
-  const adjustTimestamp = (amount, unit) => {
-    setExpirationTimestamp(
-      moment(expirationTimestamp).add(amount, unit).format()
-    );
-  };
-
-  const setTimestamp = (amount, unit) => {
-    setExpirationTimestamp(moment().add(amount, unit).format());
-  };
-
-  return (
-    <Grid item xs={12}>
-      <ButtonGroup variant="contained">
-        <Button type="primary" onClick={() => setTimestamp(amount, unit)}>
-          = {amount} {unit}
-        </Button>
-        <Button type="primary" onClick={() => adjustTimestamp(amount, unit)}>
-          + {amount} {unit}
-        </Button>
-        <Button type="primary" onClick={() => adjustTimestamp(-amount, unit)}>
-          - {amount} {unit}
-        </Button>
-      </ButtonGroup>
-    </Grid>
-  );
-};
-
-export function VipExpirationDialog(props) {
-  const { open, vips, onDeleteVip, handleClose, handleConfirm } = props;
-  const [expirationTimestamp, setExpirationTimestamp] = useState();
+/**
+ * 
+ * @param open [NEW] boolean - signaling opened/closed dialog window
+ * @param open [OLD] boolean | ImmutablePlayer{} - signaling opened/closed dialog window and passing down the player object
+ * @param player [NEW] ImmutablePlayer{} - the Player object
+ */
+export function VipExpirationDialog({ open, vips, onDeleteVip, handleClose, handleConfirm, player }) {
+  const [expirationTimestamp, setExpirationTimestamp] = useState("");
   const [isVip, setIsVip] = useState(false);
   const [forward, setForward] = useState(false);
 
-  /* open is either a boolean or the passed in player Map */
   useEffect(() => {
-    if (!(typeof open === "boolean") && open) {
-      setIsVip(!!vips.get(open.get("steam_id_64")));
+    // handle old usage
+    if (typeof open === "object") {
+      setIsVip(!!vips.get(open.get("player_id")));
       if (open.get("vip_expiration")) {
         setExpirationTimestamp(open.get("vip_expiration"));
       }
+      return
     }
+
+    // handle new usage
+    if (open === true && player) {
+      // if player provided from "api/get_players" it already includes "is_vip" param
+      if (player?.has("is_vip") && player.get("is_vip")) {
+        setIsVip(true)
+        // but the expiration date needs to be found from "api/get_vip_ids"
+        let p = vips.find(vipObj => vipObj.player_id === player.get("player_id"))
+        let pExpiration = p?.vip_expiration
+        // A player can have VIP on the server but no corresponding record w/ expiration in CRCON
+        setExpirationTimestamp(dayjs(pExpiration ? pExpiration : dayjs()).format("YYYY-MM-DD HH:mm:ssZ"))
+        return
+      }
+      // if player provided from "api/get_players_history" we need to look inside "api/get_vip_ids" and find him there
+      if (vips.some((playerVIP) => playerVIP.player_id === player.get("player_id"))) {
+        setIsVip(true)
+        setExpirationTimestamp(dayjs(player.get("vip_expiration")).format("YYYY-MM-DD HH:mm:ssZ"));
+        return
+      }
+    }
+
+    setIsVip(false);
   }, [open, vips]);
 
+  if (!open || !player) {
+    return null;
+  }
+
+  const currentVipExpiration = typeof open === "object" ? open?.get("vip_expiration")
+    : player?.has("vip_expiration") ? player?.get("vip_expiration") :
+      vips?.find(vipObj => vipObj.player_id === player?.get("player_id"))?.vip_expiration
+
   return (
-    <Dialog open={open} aria-labelledby="form-dialog-title">
+    <Dialog open={open} maxWidth="xs" fullWidth={true} onClose={handleClose} aria-labelledby="form-dialog-title">
       <DialogTitle id="form-dialog-title">
-        Add / Remove / Update VIP Expiration Date
+        Manage VIP
       </DialogTitle>
       <DialogContent>
-        <Grid container spacing={2}>
-          <Grid item>
-            <ForwardCheckBox
-              bool={forward}
-              onChange={() => setForward(!forward)}
-            />
-          </Grid>
-          <Grid item>
-            <PlayerVipSummary player={open} isVip={isVip} />
-          </Grid>
-          <Grid item container spacing={2}>
-            {vipButtons.map(([amount, unit]) => (
-              <VipTimeButtons
-                key={unit}
+        <Box style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <PlayerVipSummary player={player ?? open} vipExpiration={currentVipExpiration} isVip={isVip} />
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <DesktopDateTimePicker
+            label="New VIP Expiration"
+            value={dayjs(expirationTimestamp)}
+            onChange={(value) => console.log(value)} // send value to hook form
+            format='LLL'
+            maxDate={dayjs("3000-01-01T00:00:00+00:00")}
+          />
+        </LocalizationProvider>
+          <Box>
+            <Button variant="outlined" size="small" color="secondary" style={{ display: "block", width: "100%", marginBottom: 4 }} onClick={() => setExpirationTimestamp(dayjs().add(15, "minutes"))}>Help to join!</Button>
+            {presetTimes.map(([amount, unit], index) => (
+              <TimePickerButtons
+                key={unit + index}
                 amount={amount}
                 unit={unit}
                 expirationTimestamp={expirationTimestamp}
                 setExpirationTimestamp={setExpirationTimestamp}
               />
             ))}
-          </Grid>
-          <Grid item>
-            <MuiPickersUtilsProvider utils={MomentUtils}>
-              <DateTimePicker
-                label="New VIP Expiration"
-                value={expirationTimestamp}
-                onChange={(value) => {
-                  setExpirationTimestamp(value.format());
-                }}
-                format="YYYY/MM/DD HH:mm"
-                maxDate={moment("3000-01-01T00:00:00+00:00")}
-              />
-            </MuiPickersUtilsProvider>
-          </Grid>
-        </Grid>
+            <Button variant="outlined" size="small" color="secondary" style={{ display: "block", width: "100%" }} onClick={() => setExpirationTimestamp("3000-01-01T00:00:00+00:00")}>Indefinite</Button>
+          </Box>
+          <ForwardCheckBox
+            label={<span>Apply VIP to <strong>ALL</strong> servers?</span>}
+            bool={forward}
+            onChange={() => setForward(!forward)}
+          />
+        </Box>
       </DialogContent>
       <DialogActions>
-        <Button
-          onClick={() => {
-            handleConfirm(open, moment("3000-01-01T00:00:00+00:00").format(), forward);
-          }}
-          color="primary"
-        >
-          Indefinite VIP
-        </Button>
         {isVip && (
           <Button
             color="secondary"
             onClick={() => {
-              setExpirationTimestamp(moment().format());
-              onDeleteVip(open, forward);
+              setExpirationTimestamp(dayjs().format());
+              onDeleteVip(player ?? open, forward);
               handleClose();
             }}
           >
             Remove VIP
           </Button>
         )}
+        <Box style={{ flexGrow: 1 }} />
         <Button
-          color="primary"
           onClick={() => {
             handleClose();
           }}
@@ -139,14 +134,15 @@ export function VipExpirationDialog(props) {
           Cancel
         </Button>
         <Button
+          color="primary"
           onClick={() => {
             handleConfirm(
-              open,
-              moment.utc(expirationTimestamp).format("YYYY-MM-DD HH:mm:ssZ"),
+              player ?? open,
+              dayjs(expirationTimestamp).format("YYYY-MM-DD HH:mm:ssZ"),
               forward
             );
+            handleClose();
           }}
-          color="primary"
         >
           Confirm
         </Button>

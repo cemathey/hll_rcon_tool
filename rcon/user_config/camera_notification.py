@@ -16,13 +16,15 @@ class CameraNotificationUserConfig(BaseUserConfig):
 
     @staticmethod
     def save_to_db(values: CameraNotificationType, dry_run=False):
-        key_check(CameraNotificationType.__required_keys__, values.keys())
+        key_check(
+            CameraNotificationType.__required_keys__,
+            CameraNotificationType.__optional_keys__,
+            values.keys(),
+        )
 
         validated_conf = CameraNotificationUserConfig(
             broadcast=values.get("broadcast"), welcome=values.get("welcome")
         )
 
         if not dry_run:
-            set_user_config(
-                CameraNotificationUserConfig.KEY(), validated_conf.model_dump()
-            )
+            set_user_config(CameraNotificationUserConfig.KEY(), validated_conf)

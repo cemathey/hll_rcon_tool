@@ -1,26 +1,45 @@
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
 
-from django.contrib.auth.decorators import permission_required
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
+from django_ratelimit.decorators import ratelimit
 
+from rcon.api_commands import get_rcon_api
+from rcon.game import get_game_profile
+from rcon.maps import Layer
 from rcon.models import Maps, enter_session
-from rcon.scoreboard import LiveStats, TimeWindowStats, get_cached_live_game_stats
+from rcon.player_stats import LiveStats, get_cached_live_game_stats
+from rcon.types import GameEnum
 from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
-from rcon.maps import safe_get_map_name, parse_layer
+from rcon.utils import MapsHistory
 
-from .auth import api_response, login_required, stats_login_required
+from .auth import api_response, stats_login_required
+from .decorators import require_http_methods
 from .views import _get_data
 
 logger = logging.getLogger("rconweb")
 
 
+def parse_recorded_layer(record: Maps) -> Layer:
+    """Resolve a stored map name against the game the match was played on.
+
+    Every row carries the game it belongs to, so historical records stay
+    correct even after a server switches games. Resolving against the WWII
+    catalog unconditionally leaves Vietnam matches with a placeholder layer:
+    the ID title-cased into a name ("Wdevc") and default WWII factions.
+    """
+    return get_game_profile(GameEnum.from_int(record.game)).parse_layer(
+        record.map_name
+    )
+
+
 @csrf_exempt
+@ratelimit(key='ip', rate='60/m')
 @stats_login_required
 @require_http_methods(["GET"])
-def live_scoreboard(request):
+def get_live_scoreboard(request):
+    """Return stats for all currently connected players (stats are reset on disconnect, not match start)"""
     stats = LiveStats()
     config = RconServerSettingsUserConfig.load_from_db()
     try:
@@ -44,6 +63,7 @@ def live_scoreboard(request):
 
 
 @csrf_exempt
+@ratelimit(key='ip', rate='60/m')
 @stats_login_required
 @require_http_methods(["GET"])
 def get_scoreboard_maps(request):
@@ -62,19 +82,29 @@ def get_scoreboard_maps(request):
         total = query.count()
         res = query.limit(page_size).offset((page - 1) * page_size).all()
 
+        maps = []
+        for record in res:
+            layer = parse_recorded_layer(record)
+            r = record.to_dict()
+            maps.append(
+                dict(
+                    map=layer,
+                    id=r["id"],
+                    creation_time=r["creation_time"],
+                    start=r["start"],
+                    end=r["end"],
+                    server_number=r["server_number"],
+                    player_stats=r["player_stats"],
+                    result=r["result"],
+                )
+            )
+
         return api_response(
             result={
                 "page": page,
                 "page_size": page_size,
                 "total": total,
-                "maps": [
-                    dict(
-                        just_name=parse_layer(r.map_name).map.id,
-                        long_name=safe_get_map_name(r.map_name),
-                        **r.to_dict(),
-                    )
-                    for r in res
-                ],
+                "maps": maps,
             },
             failed=False,
             command="get_scoreboard_maps",
@@ -82,6 +112,7 @@ def get_scoreboard_maps(request):
 
 
 @csrf_exempt
+@ratelimit(key='ip', rate='60/m')
 @stats_login_required
 @require_http_methods(["GET"])
 def get_map_scoreboard(request):
@@ -97,7 +128,52 @@ def get_map_scoreboard(request):
                 error = "No map for this ID"
                 failed = True
             else:
+                layer = parse_recorded_layer(game)
                 game = game.to_dict(with_stats=True)
+                game["map"] = layer
+
+                logs = get_rcon_api().get_historical_logs(
+                    action="KILL",
+                    from_=game["start"],
+                    till=game["end"],
+                    limit=100000,
+                    time_sort="asc",
+                    exact_action=True,
+                    server_filter=str(game["server_number"]),
+                )
+                encounters = {
+                    stats["player_id"]: [] for stats in game["player_stats"]
+                }
+                
+                for log in logs:
+                    ts = int(
+                        (log["event_time"].replace(tzinfo=UTC) - game["start"].replace(tzinfo=UTC)).total_seconds()
+                    )
+                    killer_id = log["player1_id"]
+                    victim_id = log["player2_id"]
+                    if killer_id in encounters:
+                        encounters[killer_id].append(
+                            {
+                                "action": "KILL",
+                                "player_id": victim_id,
+                                "player_name": log["player2_name"],
+                                "ts": ts,
+                                "weapon": log["weapon"],
+                            }
+                        )
+                    if victim_id in encounters:
+                        encounters[victim_id].append(
+                            {
+                                "action": "DEATH",
+                                "player_id": killer_id,
+                                "player_name": log["player1_name"],
+                                "ts": ts,
+                                "weapon": log["weapon"],
+                            }
+                        )
+
+                for stats in game["player_stats"]:
+                    stats["encounters"] = encounters[stats["player_id"]]
     except Exception as e:
         game = None
         error = repr(e)
@@ -113,9 +189,11 @@ def get_map_scoreboard(request):
 
 
 @csrf_exempt
+@ratelimit(key='ip', rate='60/m')
 @stats_login_required
 @require_http_methods(["GET"])
 def get_live_game_stats(request):
+    """Return stats for the currently playing match"""
     stats = None
     error_ = None
     failed = True
@@ -133,32 +211,57 @@ def get_live_game_stats(request):
 
 
 @csrf_exempt
-@login_required()
-@permission_required("api.can_view_date_scoreboard", raise_exception=True)
+@ratelimit(key='ip', rate='10/m')
+@stats_login_required
 @require_http_methods(["GET"])
-def date_scoreboard(request):
-    try:
-        start = datetime.fromtimestamp(request.GET.get("start"))
-    except (ValueError, KeyError, TypeError) as e:
-        start = datetime.now() - timedelta(minutes=60)
-    try:
-        end = datetime.fromtimestamp(request.GET.get("end"))
-    except (ValueError, KeyError, TypeError) as e:
-        end = datetime.now()
-
-    stats = TimeWindowStats()
-
-    try:
-        result = stats.get_players_stats_at_time(start, end)
-        error_ = (None,)
-        failed = False
-
-    except Exception as e:
-        logger.exception("Unable to produce date stats")
-        result = {}
-        error_ = ""
-        failed = True
-
+def get_map_history(request):
+    data = _get_data(request)
+    res = MapsHistory()[:]
+    if data.get("pretty"):
+        res = [
+            dict(
+                name=i["name"],
+                start=(
+                    datetime.fromtimestamp(i["start"]).isoformat()
+                    if i["start"]
+                    else None
+                ),
+                end=datetime.fromtimestamp(i["end"]).isoformat() if i["end"] else None,
+            )
+            for i in res
+        ]
     return api_response(
-        result=result, error=error_, failed=failed, command="date_scoreboard"
+        result=res, command="get_map_history", arguments={}, failed=False
     )
+
+
+@csrf_exempt
+@ratelimit(key='ip', rate='10/m')
+@stats_login_required
+@require_http_methods(["GET"])
+def get_previous_map(request):
+    command_name = "get_previous_map"
+    try:
+        prev_map = MapsHistory()[1]
+        res = {
+            "name": prev_map["name"],
+            "start": (
+                datetime.fromtimestamp(prev_map["start"]).isoformat()
+                if prev_map["start"]
+                else None
+            ),
+            "end": (
+                datetime.fromtimestamp(prev_map["end"]).isoformat()
+                if prev_map["end"]
+                else None
+            ),
+        }
+
+        return api_response(result=res, command=command_name, failed=False)
+    except IndexError:
+        return api_response(result=None, command=command_name, failed=False)
+    except Exception as e:
+        logger.exception(e)
+        return api_response(
+            result=None, command=command_name, failed=True, error=str(e)
+        )

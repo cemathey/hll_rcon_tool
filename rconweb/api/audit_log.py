@@ -1,16 +1,17 @@
 import json
 import logging
+import math
 from functools import wraps
 
 from django.contrib.auth.decorators import permission_required
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm import query
 
 from rcon.models import AuditLog, enter_session
 
 from .auth import api_response, login_required
-from .decorators import require_content_type
+from .decorators import permission_required, require_http_methods
 from .utils import _get_data
 
 logger = logging.getLogger("rconweb")
@@ -53,7 +54,10 @@ def record_audit(func):
 
 def auto_record_audit(name):
     def wrapper(func):
-        if name.startswith("do_") or name.startswith("set_"):
+        # A few get_ methods can be called w/ POST but don't modify anything
+        # so filtering like this should work since this is only for the RconAPI exposed
+        # endpoints, manually defined endpoints use the @record_audit endpoint
+        if not name.startswith("get_") and not name.startswith("validate_"):
             return record_audit(func)
         else:
             return func
@@ -97,10 +101,15 @@ def get_audit_logs(request):
     and_conditions = []
     failed = False
     error = None
+    res = None
+
+    page: int = int(data.get("page", 1))
+    page_size: int = int(data.get("page_size", 10))
 
     try:
         with enter_session() as sess:
-            query = sess.query(AuditLog)
+            count_stmt = select(func.count(AuditLog.id))
+            stmt = select(AuditLog)
 
             if usernames := data.get("usernames"):
                 usernames = _to_list(usernames)
@@ -124,16 +133,27 @@ def get_audit_logs(request):
                     and_conditions = and_(*and_conditions)
                 else:
                     and_conditions = and_conditions[0]
-                query = query.filter(and_conditions)
-                logger.debug(query)
+                stmt = stmt.filter(and_conditions)
+                count_stmt = count_stmt.filter(and_conditions)
 
             if data.get("time_sort") == "asc":
-                query = query.order_by(AuditLog.creation_time.asc())
+                stmt = stmt.order_by(AuditLog.creation_time.asc())
             else:
-                query = query.order_by(AuditLog.creation_time.desc())
+                stmt = stmt.order_by(AuditLog.creation_time.desc())
 
-            res = query.all()
-            res = [r.to_dict() for r in res]
+            paged_stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+            res = sess.execute(paged_stmt).scalars().all()
+            if data.get("page") is None:
+                res = [r.to_dict() for r in res]
+            else:
+                count = sess.execute(count_stmt).scalar_one()
+                res = {
+                    "audit_logs": [r.to_dict() for r in res],
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": math.ceil(count / page_size),
+                    "total_entries": count,
+                }
     except Exception as e:
         logger.exception("Getting audit log failed")
         failed = True

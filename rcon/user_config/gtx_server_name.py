@@ -24,7 +24,11 @@ class GtxServerNameChangeUserConfig(BaseUserConfig):
 
     @staticmethod
     def save_to_db(values: GtxServerNameChangeType, dry_run=False):
-        key_check(GtxServerNameChangeType.__required_keys__, values.keys())
+        key_check(
+            GtxServerNameChangeType.__required_keys__,
+            GtxServerNameChangeType.__optional_keys__,
+            values.keys(),
+        )
 
         validated_conf = GtxServerNameChangeUserConfig(
             ip=values.get("ip"),
@@ -32,6 +36,4 @@ class GtxServerNameChangeUserConfig(BaseUserConfig):
         )
 
         if not dry_run:
-            set_user_config(
-                GtxServerNameChangeUserConfig.KEY(), validated_conf.model_dump()
-            )
+            set_user_config(GtxServerNameChangeUserConfig.KEY(), validated_conf)

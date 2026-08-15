@@ -14,7 +14,9 @@ def test_no_mentions():
     config = ChatWebhooksUserConfig(
         hooks=[
             DiscordMentionWebhook(
-                url=HttpUrl("http://example.com"), user_mentions=["<@1212>"]
+                url=HttpUrl("http://example.com"),
+                user_mentions=["<@1212>"],
+                role_mentions=[],
             )
         ],
         allow_mentions=True,
@@ -23,8 +25,8 @@ def test_no_mentions():
     embed = handler.create_chat_message(
         log={
             "sub_content": "test message",
-            "player": "some dude",
-            "steam_id_64_1": "1234",
+            "player_name_1": "some dude",
+            "player_id_1": "1234",
             "action": "CHAT[Allies][Team]",
         }
     )
@@ -36,7 +38,9 @@ def test_chat_mentions_are_escaped():
     config = ChatWebhooksUserConfig(
         hooks=[
             DiscordMentionWebhook(
-                url=HttpUrl("http://example.com"), user_mentions=["<@1212>"]
+                url=HttpUrl("http://example.com"),
+                user_mentions=["<@1212>"],
+                role_mentions=[],
             )
         ],
         allow_mentions=False,
@@ -45,8 +49,8 @@ def test_chat_mentions_are_escaped():
     embed = handler.create_chat_message(
         log={
             "sub_content": "test message @here",
-            "player": "some dude",
-            "steam_id_64_1": "1234",
+            "player_name_1": "some dude",
+            "player_id_1": "1234",
             "action": "CHAT[Allies][Team]",
         }
     )
@@ -60,8 +64,8 @@ def test_admin_ping_mentions_always_escaped():
     embed = handler.create_chat_embed(
         log={
             "sub_content": "test message @here",
-            "player": "some dude",
-            "steam_id_64_1": "1234",
+            "player_name_1": "some dude",
+            "player_id_1": "1234",
             "action": "CHAT[Allies][Team]",
         },
         allow_mentions=False,
@@ -74,7 +78,9 @@ def test_mentions_are_not_escaped():
     config = ChatWebhooksUserConfig(
         hooks=[
             DiscordMentionWebhook(
-                url=HttpUrl("http://example.com"), user_mentions=["<@1212>"]
+                url=HttpUrl("http://example.com"),
+                user_mentions=["<@1212>"],
+                role_mentions=[],
             )
         ],
         allow_mentions=True,
@@ -84,8 +90,8 @@ def test_mentions_are_not_escaped():
     embed = handler.create_chat_message(
         log={
             "sub_content": "test message @here",
-            "player": "some dude",
-            "steam_id_64_1": "1234",
+            "player_name_1": "some dude",
+            "player_id_1": "1234",
             "action": "CHAT[Allies][Team]",
         }
     )
@@ -98,7 +104,9 @@ def test_admin_pings_mention_start():
         trigger_words=["!admin"],
         hooks=[
             DiscordMentionWebhook(
-                url=HttpUrl("http://example.com"), user_mentions=["<@1212>"]
+                url=HttpUrl("http://example.com"),
+                user_mentions=["<@1212>"],
+                role_mentions=[],
             )
         ],
     )
@@ -107,8 +115,8 @@ def test_admin_pings_mention_start():
     content, embed, triggered = handler.create_admin_ping_message(
         log={
             "sub_content": "!admin test @here",
-            "player": "some dude",
-            "steam_id_64_1": "1234",
+            "player_name_1": "some dude",
+            "player_id_1": "1234",
             "action": "CHAT[Allies][Team]",
         }
     )
@@ -123,7 +131,9 @@ def test_admin_pings_mention_middle():
         trigger_words=["!admin"],
         hooks=[
             DiscordMentionWebhook(
-                url=HttpUrl("http://example.com"), user_mentions=["<@1212>"]
+                url=HttpUrl("http://example.com"),
+                user_mentions=["<@1212>"],
+                role_mentions=[],
             )
         ],
     )
@@ -132,8 +142,8 @@ def test_admin_pings_mention_middle():
     content, embed, triggered = handler.create_admin_ping_message(
         log={
             "sub_content": "test !admin @here",
-            "player": "some dude",
-            "steam_id_64_1": "1234",
+            "player_name_1": "some dude",
+            "player_id_1": "1234",
             "action": "CHAT[Allies][Team]",
         }
     )
@@ -142,12 +152,15 @@ def test_admin_pings_mention_middle():
     assert content == "<@1212>"
     assert triggered
 
+
 def test_admin_pings_contains_numbers():
     config = AdminPingWebhooksUserConfig(
         trigger_words=["testword123"],
         hooks=[
             DiscordMentionWebhook(
-                url=HttpUrl("http://example.com"), user_mentions=["<@1212>"]
+                url=HttpUrl("http://example.com"),
+                user_mentions=["<@1212>"],
+                role_mentions=[],
             )
         ],
     )
@@ -156,8 +169,8 @@ def test_admin_pings_contains_numbers():
     content, embed, triggered = handler.create_admin_ping_message(
         log={
             "sub_content": "testword123 test @here",
-            "player": "some dude",
-            "steam_id_64_1": "1234",
+            "player_name_1": "some dude",
+            "player_id_1": "1234",
             "action": "CHAT[Allies][Team]",
         }
     )
@@ -179,10 +192,10 @@ def test_kill_message():
     embed = handler.create_kill_message(
         log={
             "action": "KILL",
-            "player": "EL MONO LOKO",
-            "steam_id_64_1": "76561198823171234",
-            "player2": "zerothreeOG",
-            "steam_id_64_2": "76561199371581234",
+            "player_name_1": "EL MONO LOKO",
+            "player_id_1": "76561198823171234",
+            "player_name_2": "zerothreeOG",
+            "player_id_2": "76561199371581234",
             "weapon": "MG42",
         },
     )
@@ -211,10 +224,10 @@ def test_team_kill_message():
     embed = handler.create_kill_message(
         log={
             "action": "TEAM KILL",
-            "player": "EL MONO LOKO",
-            "steam_id_64_1": "76561198823171234",
-            "player2": "zerothreeOG",
-            "steam_id_64_2": "76561199371581234",
+            "player_name_1": "EL MONO LOKO",
+            "player_id_1": "76561198823171234",
+            "player_name_2": "zerothreeOG",
+            "player_id_2": "76561199371581234",
             "weapon": "MG42",
         },
     )

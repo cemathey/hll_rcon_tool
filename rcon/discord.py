@@ -1,22 +1,31 @@
 import logging
 import re
 from functools import lru_cache
-from typing import List, Type
+from typing import Any, List, Type
 
 import requests
 from discord_webhook import DiscordWebhook
 from pydantic import HttpUrl
-from discord.utils import escape_markdown
 
+from discord.utils import escape_markdown
 from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
+from rcon.user_config.utils import (
+    DISCORD_AUDIT_FORMAT,
+    BaseUserConfig,
+    mask_sensitive_data,
+)
 from rcon.user_config.webhooks import (
     AuditWebhooksUserConfig,
-    BaseMentionWebhookUserConfig,
-    BaseWebhookUserConfig,
     CameraWebhooksUserConfig,
     WatchlistWebhooksUserConfig,
 )
-from rcon.discord_asyncio import DiscordAsyncio
+from rcon.utils import dict_differences, get_server_number
+from rcon.webhook_service import (
+    enqueue_message,
+    WebhookMessage,
+    WebhookType,
+    WebhookMessageType,
+)
 
 
 @lru_cache
@@ -28,12 +37,14 @@ def parse_webhook_url(url):
     if not url:
         return None, None
     resp = requests.get(url, timeout=10).json()
-    _id = int(resp["id"])
-    token = resp["token"]
+    _id = resp.get("id")
+    token = resp.get("token")
     return _id, token
 
 
 logger = logging.getLogger(__name__)
+
+DISCORD_WEBHOOK_TIMEOUT_SECONDS = 10
 
 
 def make_hook(webhook_url) -> DiscordWebhook | None:
@@ -41,7 +52,10 @@ def make_hook(webhook_url) -> DiscordWebhook | None:
     if not all([webhook_id, webhook_token]):
         return None
 
-    return DiscordWebhook(url=webhook_url)
+    # Keep webhook delivery from blocking the caller indefinitely.
+    return DiscordWebhook(
+        url=str(webhook_url), timeout=DISCORD_WEBHOOK_TIMEOUT_SECONDS
+    )
 
 
 def make_allowed_mentions(user_ids, role_ids):
@@ -81,9 +95,39 @@ def dict_to_discord(d):
     return "   ".join([f"{k}: `{v}`" for k, v in d.items()])
 
 
-def send_to_discord_audit(
-    message, by=None, silent=True, webhookurls: list[HttpUrl | None] | None = None
+def audit_user_config_differences(
+    old_model: dict[str, Any] | BaseUserConfig,
+    new_model: dict[str, Any] | BaseUserConfig,
+    command_name,
+    author,
 ):
+    if isinstance(old_model, BaseUserConfig):
+        old_model = old_model.model_dump()
+    if isinstance(new_model, BaseUserConfig):
+        new_model = new_model.model_dump()
+
+    differences = dict_differences(old_model, new_model)
+    mask_sensitive_data(differences)
+    message = DISCORD_AUDIT_FORMAT.format(differences=str(differences))
+    send_to_discord_audit(
+        message=message,
+        command_name=command_name,
+        by=author,
+        md_escape_message=False,
+    )
+
+
+def send_to_discord_audit(
+    message: str,
+    command_name: str,
+    by: str | None = None,
+    silent=True,
+    webhookurls: list[HttpUrl | None] | None = None,
+    md_escape_message: bool = True,
+    md_escape_author: bool = True,
+    flatten: bool = True,
+):
+    by = by or "CRCON"
     config = None
 
     if webhookurls is None:
@@ -93,25 +137,39 @@ def send_to_discord_audit(
     server_config = RconServerSettingsUserConfig.load_from_db()
 
     # Flatten messages with newlines
-    message = message.replace("\n", " ")
-    logger.info("Audit: [%s] %s", by, message)
+    if flatten:
+        message = message.replace("\n", " ")
+    logger.info("Audit: [%s] %s, %s", by, command_name, message.replace("\n", " "))
     if not webhookurls:
         logger.debug("No webhooks set for audit log")
         return
     try:
+        content = "[`{}`][`{}`]][**{}**] {}".format(
+            server_config.short_name,
+            command_name,
+            escape_markdown(by) if md_escape_author else by,
+            escape_markdown(message) if md_escape_message else message,
+        )
+        logger.info(f"send_to_discord_audit {content=}")
+        # TODO: fix typing or set `by` to something besides None
         dh_webhooks = [
             DiscordWebhook(
                 url=str(url),
-                content=f"[{server_config.short_name}][**{escape_markdown(str(by))}**] {escape_markdown(message)}",
+                content=content,
             )
             for url in webhookurls
             if url
         ]
 
-        # use DiscordAsyncio to send webhooks asynchronously
-        # we get a future, not a response, but i don't see code using the responses
         for hook in dh_webhooks:
-            DiscordAsyncio().send_webhook(hook)
+            enqueue_message(
+                message=WebhookMessage(
+                    payload=hook.json,
+                    webhook_type=WebhookType.DISCORD,
+                    message_type=WebhookMessageType.AUDIT,
+                    server_number=int(get_server_number()),
+                )
+            )
     except:
         logger.exception("Can't send audit log")
         if not silent:

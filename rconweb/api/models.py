@@ -29,8 +29,12 @@ class DjangoAPIKey(models.Model):
 
 
 class SteamPlayer(models.Model):
+    """Associate a players in game ID (steam or windows) with their Django user"""
+
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    steam_id_64 = models.CharField(max_length=100)
+    steam_id_64 = models.CharField(
+        max_length=100, verbose_name="Player ID", blank=True, default=""
+    )
     default_permissions = ()
 
 
@@ -40,6 +44,15 @@ class RconUser(User):
     class Meta:
         default_permissions = ()
         permissions = (
+            ("can_edit_player_soldier", "Can edit player soldier details"),
+            ("can_edit_player_account", "Can edit player account details"),
+            ("can_disband_squad", "Can disband a squad"),
+            ("can_remove_player_from_squad", "Can remove player from a squad"),
+            ("can_set_warmup_timer", "Can change the match warmup timer"),
+            ("can_set_match_timer", "Can change the match timer"),
+            ("can_remove_match_timer", "Can remove the custom match timer"),
+            ("can_remove_warmup_timer", "Can remove the custom warmup timer"),
+            ("can_set_dynamic_weather_enabled", "Can enable or disable dynamic weather"),
             ("can_add_admin_roles", "Can add HLL game server admin roles to players"),
             ("can_add_map_to_rotation", "Can add a map to the rotation"),
             ("can_add_map_to_whitelist", "Can add a map to the votemap whitelist"),
@@ -52,7 +65,6 @@ class RconUser(User):
             ("can_add_player_watch", "Can add a watch to players"),
             ("can_add_vip", "Can add VIP status to players"),
             ("can_ban_profanities", "Can ban profanities (censored game chat)"),
-            ("can_blacklist_players", "Can add players to the blacklist"),
             (
                 "can_change_auto_broadcast_config",
                 "Can change the automated broadcast settings",
@@ -120,19 +132,19 @@ class RconUser(User):
             ("can_reset_votekick_threshold", "Can reset votekick thresholds"),
             ("can_reset_votemap_state", "Can reset votemap selection & votes"),
             ("can_run_raw_commands", "Can send raw commands to the HLL game server"),
+            ("can_send_votemap_reminder", "Can send votemap reminder message to all players"),
             ("can_set_map_whitelist", "Can set the votemap whitelist"),
             ("can_switch_players_immediately", "Can immediately switch players"),
             ("can_switch_players_on_death", "Can switch players on death"),
             ("can_temp_ban_players", "Can temporarily ban players"),
             ("can_toggle_services", "Can enable/disable services (automod, etc)"),
             ("can_unban_profanities", "Can unban profanities (censored game chat)"),
-            ("can_unblacklist_players", "Can remove players from the blacklist"),
             ("can_unflag_player", "Can remove flags from players"),
             ("can_upload_vip_list", "Can upload a VIP list"),
             ("can_view_admin_groups", "Can view available admin roles"),
             (
                 "can_view_admin_ids",
-                "Can view the name/steam IDs/role of everyone with a HLL games erver admin role",
+                "Can view the name/steam IDs/role of everyone with a HLL game server admin role",
             ),
             ("can_view_admins", "Can view users with HLL game server admin roles"),
             ("can_view_all_maps", "Can view all possible maps"),
@@ -214,7 +226,7 @@ class RconUser(User):
             ),
             (
                 "can_view_players",
-                "Can view get_players_fast endpoint for all connected players ",
+                "Can view get_players endpoint for all connected players ",
             ),
             ("can_view_profanities", "Can view profanities (censored game chat)"),
             ("can_view_queue_length", "Can view the maximum size of the server queue"),
@@ -225,7 +237,6 @@ class RconUser(User):
                 "Can view the amount of time left in the round",
             ),
             ("can_view_server_name", "Can view the server name"),
-            ("can_view_server_stats", "Can view the get_server_stats endpoint"),
             (
                 "can_view_shared_standard_messages",
                 "Can view the shared standard messages",
@@ -426,6 +437,48 @@ class RconUser(User):
             ),
             ("can_view_chat_commands_config", "Can view the chat commands config"),
             ("can_change_chat_commands_config", "Can change the chat commands config"),
+            (
+                "can_view_rcon_chat_commands_config",
+                "Can view the rcon chat commands config",
+            ),
+            (
+                "can_change_rcon_chat_commands_config",
+                "Can change rcon the chat commands config",
+            ),
             ("can_view_log_stream_config", "Can view the Log Stream config"),
             ("can_change_log_stream_config", "Can change the Log Stream config"),
+            ("can_view_blacklists", "Can view available blacklists"),
+            ("can_add_blacklist_records", "Can add players to blacklists"),
+            (
+                "can_change_blacklist_records",
+                "Can unblacklist players and edit blacklist records",
+            ),
+            ("can_delete_blacklist_records", "Can delete blacklist records"),
+            ("can_create_blacklists", "Can create blacklists"),
+            ("can_change_blacklists", "Can change blacklists"),
+            ("can_delete_blacklists", "Can delete blacklists"),
+            ("can_change_game_layout", "Can change game layout"),
+            ("can_view_message_templates", "Can view shared message templates"),
+            ("can_add_message_templates", "Can add new shared message templates"),
+            ("can_delete_message_templates", "Can delete shared message templates"),
+            ("can_edit_message_templates", "Can edit shared message templates"),
+            ("can_view_seed_vip_config", "Can view the Seed VIP config"),
+            ("can_change_seed_vip_config", "Can change the Seed VIP config"),
+            (
+                "can_view_webhook_queues",
+                "Can view information about the webhook service",
+            ),
+            (
+                "can_change_webhook_queues",
+                "Can remove messages from the webhook queue service",
+            ),
+            ("can_view_watch_killrate_config", "Can view the Watch KillRate config"),
+            (
+                "can_change_watch_killrate_config",
+                "Can change the Watch KillRate config",
+            ),
+            ("can_remove_map_from_votemap", "Can remove map from current votemap selection"),
+            ("can_add_map_to_votemap", "Can add map to current votemap selection"),
+            ("can_set_votemap_winner", "Can guarantee next map with votemap enabled"),
+            ("can_add_votemap_vote", "Can manually add vote"),
         )

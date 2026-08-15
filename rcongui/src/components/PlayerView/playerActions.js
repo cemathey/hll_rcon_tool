@@ -1,29 +1,31 @@
-import React from "react";
-import Button from "@material-ui/core/Button";
-import Chip from "@material-ui/core/Chip";
-import ButtonGroup from "@material-ui/core/ButtonGroup";
-import TextField from "@material-ui/core/TextField";
-import _ from "lodash";
-import Badge from "@material-ui/core/Badge";
-import Menu from "@material-ui/core/Menu";
-import MenuItem from "@material-ui/core/MenuItem";
-import ArrowDropDownIcon from "@material-ui/icons/ArrowDropDown";
+import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import ButtonGroup from "@mui/material/ButtonGroup";
+import TextField from "@mui/material/TextField";
+import Badge from "@mui/material/Badge";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import "react-toastify/dist/ReactToastify.css";
-import Dialog from "@material-ui/core/Dialog";
-import DialogActions from "@material-ui/core/DialogActions";
-import DialogContent from "@material-ui/core/DialogContent";
-import DialogTitle from "@material-ui/core/DialogTitle";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
 import { Map } from "immutable";
-import FlagOutlinedIcon from "@material-ui/icons/FlagOutlined";
+import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import TextHistory from "../textHistory";
-import Autocomplete from "@material-ui/lab/Autocomplete";
-import FormControlLabel from "@material-ui/core/FormControlLabel";
-import Checkbox from "@material-ui/core/Checkbox";
-import { getSharedMessages } from "../../utils/fetchUtils";
-import { Grid } from "@material-ui/core";
-import Tooltip from "@material-ui/core/Tooltip";
-import MessageIcon from "@material-ui/icons/Message";
-import VisibilityIcon from "@material-ui/icons/Visibility";
+import Autocomplete from '@mui/material/Autocomplete';
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Checkbox from "@mui/material/Checkbox";
+import { getSharedMessages } from "@/utils/fetchUtils";
+import Grid from "@mui/material/Grid2";
+import Tooltip from "@mui/material/Tooltip";
+import MessageIcon from "@mui/icons-material/Message";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import BlockIcon from "@mui/icons-material/Block";
+import StarIcon from "@mui/icons-material/Star";
+import {Component, Fragment, useState} from "react";
+import range from "lodash/range";
 
 const Duration = ({
   durationNumber,
@@ -32,7 +34,7 @@ const Duration = ({
   onMultiplierChange,
 }) => (
   <Grid container spacing={1}>
-    <Grid item>
+    <Grid>
       <TextField
         style={{ minWidth: "200px" }}
         label="TempBan Duration number"
@@ -43,7 +45,7 @@ const Duration = ({
         onChange={(event) => onNumberChange(event.target.value)}
       />
     </Grid>
-    <Grid item>
+    <Grid>
       <TextField
         style={{ minWidth: "200px" }}
         select
@@ -69,7 +71,7 @@ const Duration = ({
   </Grid>
 );
 
-class ReasonDialog extends React.Component {
+class ReasonDialog extends Component {
   constructor(props) {
     super(props);
     this.state = {
@@ -112,6 +114,8 @@ class ReasonDialog extends React.Component {
         return `Permanently Ban ${playerName}`;
       case "message_player":
         return `Message ${playerName}`;
+      case "add_blacklist_record":
+        return `Add ${playerName} to a blacklist`;
       default:
         return "";
     }
@@ -131,7 +135,7 @@ class ReasonDialog extends React.Component {
     const actionType = open.actionType;
     const playerName = open.player;
     return (
-      <Dialog open={open} aria-labelledby="form-dialog-title">
+      (<Dialog open={open} aria-labelledby="form-dialog-title">
         <DialogTitle id="form-dialog-title">
           {this.mapActionToText(actionType, playerName)}
         </DialogTitle>
@@ -146,10 +150,9 @@ class ReasonDialog extends React.Component {
               <TextField
                 {...params}
                 multiline
-                rows={4}
-                rowsMax={10}
+                minRows={4}
+                maxRows={10}
                 label={actionType === "message_player" ? "Message" : "Reason"}
-                variant="outlined"
                 margin="dense"
                 helperText="The message that will be displayed to the player. A message is mandatory"
               />
@@ -159,13 +162,12 @@ class ReasonDialog extends React.Component {
           {open.actionType !== "message_player" ? (
             <TextField
               multiline
-              rows={4}
-              rowsMax={10}
+              minRows={4}
+              maxRows={10}
               fullWidth
               value={comment}
               onChange={(e) => this.setState({ comment: e.target.value })}
               label="Comment"
-              variant="outlined"
               margin="dense"
               helperText="A comment that will NOT be displayed to the player"
             />
@@ -217,7 +219,7 @@ class ReasonDialog extends React.Component {
                 reason,
                 comment,
                 durationMultiplier * durationNumber,
-                open.steam_id_64
+                open.player_id
               );
               this.setState({ reason: "", comment: "" });
             }}
@@ -227,7 +229,7 @@ class ReasonDialog extends React.Component {
             Confirm
           </Button>
         </DialogActions>
-      </Dialog>
+      </Dialog>)
     );
   }
 }
@@ -241,9 +243,11 @@ const PlayerActions = ({
   disable = false,
   penaltyCount = Map(),
   disableAll = false,
+  onBlacklist,
+  onVipDialogOpen,
 }) => {
-  const [anchorEl, setAnchorEl] = React.useState(null);
-  const [isOpen, setOpen] = React.useState(false);
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [isOpen, setOpen] = useState(false);
   const handleClick = (event) => {
     setAnchorEl(event.currentTarget);
     setOpen(true);
@@ -261,15 +265,15 @@ const PlayerActions = ({
   const actions = [
     ["punish", "PUNISH"],
     ["kick", "KICK"],
-    ["temp_ban", "TEMP BAN"],
+    // ["temp_ban", "TEMP BAN"],
     ["switch_player_now", "SWITCH"],
     ["switch_player_on_death", "SWITCH ON DEATH"],
-    ["perma_ban", "PERMA BAN"],
+    // ["perma_ban", "PERMA BAN"],
   ];
   const show = Math.min(displayCount, actions.length);
 
   return (
-    <React.Fragment>
+    <Fragment>
       <ButtonGroup
         size={size}
         disabled={disableAll}
@@ -283,8 +287,6 @@ const PlayerActions = ({
         {show > 1 ? (
           <Tooltip title="Watch Player">
             <Button
-              color={isWatched ? "primary" : "default"}
-              variant={isWatched ? "contained" : "outlined"}
               size="small"
               onClick={() =>
                 handleAction(isWatched ? "unwatch_player" : "watch_player")
@@ -296,7 +298,7 @@ const PlayerActions = ({
         ) : (
           ""
         )}
-        {_.range(show).map((idx) => (
+        {range(show).map((idx) => (
           <Button
             key={actions[idx][0]}
             disabled={disable && !actions[idx][0].startsWith("switch")}
@@ -304,7 +306,6 @@ const PlayerActions = ({
           >
             <Badge
               size="small"
-              color="primary"
               max={9}
               badgeContent={penaltyCount.get(
                 remap_penalties[actions[idx][0]],
@@ -315,6 +316,16 @@ const PlayerActions = ({
             </Badge>
           </Button>
         ))}
+        <Tooltip title="Blacklist Player">
+          <Button size="small" onClick={onBlacklist}>
+            <BlockIcon fontSize="small" />
+          </Button>
+        </Tooltip>
+        <Tooltip title={"Manage player's VIP"} arrow>
+          <Button>
+            <StarIcon size="small" onClick={onVipDialogOpen} />
+          </Button>
+        </Tooltip>
         {onFlag ? (
           <Tooltip title="Flag Player">
             <Button size="small" onClick={onFlag}>
@@ -354,7 +365,6 @@ const PlayerActions = ({
               }
             >
               <VisibilityIcon
-                color={isWatched ? "primary" : "default"}
                 fontSize="small"
               />
             </MenuItem>
@@ -384,7 +394,7 @@ const PlayerActions = ({
       ) : (
         ""
       )}
-    </React.Fragment>
+    </Fragment>
   );
 };
 

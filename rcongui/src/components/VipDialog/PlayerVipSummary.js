@@ -1,34 +1,44 @@
 import React from "react";
-import { Chip, Grid, Typography } from "@material-ui/core";
+import { Box, Typography } from "@mui/material";
+import { Skeleton } from '@mui/material';
+import moment from "moment";
 
-export function PlayerVipSummary({ player, isVip }) {
-  const playerNames =
-    player && player.get("names")
-      ? player.get("names").map((name) => <Chip label={name.get("name")} />)
-      : "No name recorded";
 
-  let vipExpirationTimestamp = "Not VIP";
+export function PlayerVipSummary({ player, vipExpiration }) {
 
-  if (isVip) {
-    vipExpirationTimestamp =
-      player && player.get("vip_expiration")
-        ? player.get("vip_expiration")
-        : "Never";
+  if (!player) {
+    return (
+      <>
+        <Skeleton animation="wave" />
+        <Skeleton animation="wave" />
+        <Skeleton animation="wave" />
+      </>
+    )
   }
 
   return (
-    <Grid container>
-      <Grid item xs={12}>
-        <Typography variant="body2">Name: {playerNames}</Typography>
-      </Grid>
-      <Grid item xs={12}>
-        <Typography>Steam ID: {player && player.get("steam_id_64")}</Typography>
-      </Grid>
-      <Grid item xs={12}>
-        <Typography>
-          Current VIP Expiration: {vipExpirationTimestamp}
-        </Typography>
-      </Grid>
-    </Grid>
+    <Box style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+      <Typography>Name: <span style={{ fontWeight: 500 }}>{getPlayerNames(player)}</span></Typography>
+      <Typography>Player ID: <span style={{ fontWeight: 500 }}>{player.get("player_id")}</span></Typography>
+      <Typography>VIP Expires: <span style={{ fontWeight: 500 }}>{getExpirationDate(vipExpiration)}</span></Typography>
+    </Box>
   );
+}
+
+function getExpirationDate(vipExpiration) {
+  return vipExpiration ? `${moment(vipExpiration).format("lll")} (${moment(vipExpiration).fromNow()})` : "/"
+}
+
+function getPlayerNames(player) {
+  let output = "No name recorded yet";
+
+  if (player?.get("names")) {
+    output = player.get("names").map(details => details.get("name")).join(", ")
+  }
+
+  if (player?.get("name")) {
+    output = player.get("name")
+  }
+
+  return output;
 }

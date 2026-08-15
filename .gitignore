@@ -1,5 +1,8 @@
+# Compose files are templated now
+compose.yaml
 db_data/
 .env
+dev.env
 broadcasts.txt
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -148,3 +151,6 @@ certs/
 
 # scorebot database
 supervisor_data/
+
+# Logs
+logs/

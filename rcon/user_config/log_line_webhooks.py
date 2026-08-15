@@ -26,13 +26,19 @@ class LogLineWebhookUserConfig(BaseUserConfig):
 
     @staticmethod
     def save_to_db(values: LogLineType, dry_run=False):
-        key_check(LogLineType.__required_keys__, values.keys())
+        key_check(
+            LogLineType.__required_keys__, LogLineType.__optional_keys__, values.keys()
+        )
         raw_objects: list[LogLineWebhookType] = values.get("webhooks")
         _listType(values=raw_objects)  # type: ignore
 
         validated_log_lines: list[LogLineWebhook] = []
         for obj in raw_objects:
-            key_check(LogLineWebhookType.__required_keys__, obj.keys())
+            key_check(
+                LogLineWebhookType.__required_keys__,
+                LogLineWebhookType.__optional_keys__,
+                obj.keys(),
+            )
 
             raw_webhook = obj.get("webhook")
             raw_log_types = obj.get("log_types")
@@ -40,8 +46,8 @@ class LogLineWebhookUserConfig(BaseUserConfig):
 
             hook = DiscordMentionWebhook(
                 url=raw_webhook.get("url"),
-                user_mentions=raw_webhook.get("user_mentions"),
-                role_mentions=raw_webhook.get("role_mentions"),
+                user_mentions=raw_webhook.get("user_mentions", []),
+                role_mentions=raw_webhook.get("role_mentions", []),
             )
 
             log_types: list[AllLogTypes] = []
@@ -62,4 +68,4 @@ class LogLineWebhookUserConfig(BaseUserConfig):
         validated_conf = LogLineWebhookUserConfig(webhooks=validated_log_lines)
 
         if not dry_run:
-            set_user_config(LogLineWebhookUserConfig.KEY(), validated_conf.model_dump())
+            set_user_config(LogLineWebhookUserConfig.KEY(), validated_conf)

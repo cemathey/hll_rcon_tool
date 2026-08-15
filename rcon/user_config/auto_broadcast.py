@@ -12,6 +12,11 @@ class AutoBroadcastType(TypedDict):
     messages: Iterable[str]
 
 
+class AutoBroadcastMessageType(TypedDict):
+    time_sec: int
+    message: str
+
+
 class AutoBroadcastMessage(BaseModel):
     time_sec: int = Field(ge=1)
     message: str
@@ -43,23 +48,17 @@ class RawAutoBroadCastMessage(BaseModel):
 
 
 class AutoBroadcastUserConfig(BaseUserConfig):
-    """
-    Args:
-        enabled bool: Enable auto broadcasts
-        randomize bool: Set broadcasts in random order
-        messages list[dict]:
-            A list of dicts w/ `time_sec` and `message` keys
-            time_sec: length in seconds the broadcast is set for
-            message: the broadcast message
-    """
-
-    enabled: bool = Field(default=False, strict=True)
-    randomize: bool = Field(default=False, strict=True)
-    messages: list[AutoBroadcastMessage] = Field(default_factory=list)
+    enabled: bool = Field(default=False, strict=True, title="Enable", description="Enable auto broadcasts")
+    randomize: bool = Field(default=False, strict=True, title="Randomize messages", description="Set broadcasts in random order")
+    messages: list[AutoBroadcastMessage] = Field(default_factory=list, title="Messages", description="A list of dicts with `time_sec` (length in seconds the broadcast is set for) and `message` (the broadcast message) keys")
 
     @staticmethod
     def save_to_db(values: AutoBroadcastType, dry_run=False):
-        key_check(AutoBroadcastType.__required_keys__, values.keys())
+        key_check(
+            AutoBroadcastType.__required_keys__,
+            AutoBroadcastType.__optional_keys__,
+            values.keys(),
+        )
 
         raw_messages = values.get("messages")
         _listType(values=raw_messages)  # type: ignore
@@ -67,8 +66,17 @@ class AutoBroadcastUserConfig(BaseUserConfig):
         validated_messages = []
         raw_message: str
         for raw_message in raw_messages:
-            raw_message = raw_message.replace("\\n", "\n")
-            time, message = RawAutoBroadCastMessage(value=raw_message).time_and_message
+            # TODO: Fix this bandaid once the UI gets overhauled
+            # Accept dict like objects when not set through the UI
+            if isinstance(raw_message, dict):
+                time = raw_message["time_sec"]
+                message = raw_message["message"]
+            # The UI passes these in as strings
+            else:
+                raw_message = raw_message.replace("\\n", "\n")
+                time, message = RawAutoBroadCastMessage(
+                    value=raw_message
+                ).time_and_message
             validated_messages.append(
                 AutoBroadcastMessage(time_sec=int(time), message=message)
             )
@@ -80,4 +88,4 @@ class AutoBroadcastUserConfig(BaseUserConfig):
         )
 
         if not dry_run:
-            set_user_config(AutoBroadcastUserConfig.KEY(), validated_conf.model_dump())
+            set_user_config(AutoBroadcastUserConfig.KEY(), validated_conf)

@@ -51,14 +51,22 @@ class DiscordWebhook(pydantic.BaseModel):
 class DiscordMentionWebhook(DiscordWebhook):
     """A webhook URL and list of user/role IDs to mention in <@> and <@&> format"""
 
-    user_mentions: list[str] = pydantic.Field(default_factory=list)
-    role_mentions: list[str] = pydantic.Field(default_factory=list)
+    # The frontend uses the JSON schema and default values cause pydantic to not
+    # mark these as required, we handle this in the field validators by returning
+    # an empty list if we don't receive any items
+    user_mentions: list[str] = pydantic.Field()
+    role_mentions: list[str] = pydantic.Field()
 
     @pydantic.field_validator("user_mentions")
     @classmethod
-    def validate_user_formats(cls, vs: str) -> list[str]:
+    def validate_user_formats(cls, vs: list[str]) -> list[str]:
+        if not vs:
+            return []
+
         user_ids = set()
         for v in vs:
+            if not v:
+                continue
             if re.match(DISCORD_USER_ID_PATTERN, v):
                 user_ids.add(v)
             else:
@@ -67,9 +75,13 @@ class DiscordMentionWebhook(DiscordWebhook):
 
     @pydantic.field_validator("role_mentions")
     @classmethod
-    def validate_role_formats(cls, vs: str) -> list[str]:
+    def validate_role_formats(cls, vs: list[str]) -> list[str]:
+        if not vs:
+            return []
         role_ids = set()
         for v in vs:
+            if not v:
+                continue
             if re.match(DISCORD_ROLE_ID_PATTERN, v):
                 role_ids.add(v)
             else:
@@ -88,13 +100,17 @@ class BaseMentionWebhookUserConfig(BaseUserConfig):
         _listType(values=raw_hooks)
 
         for obj in raw_hooks:
-            key_check(WebhookMentionType.__required_keys__, obj.keys())
+            key_check(
+                WebhookMentionType.__required_keys__,
+                WebhookMentionType.__optional_keys__,
+                obj.keys(),
+            )
 
         validated_hooks = parse_raw_mention_hooks(raw_hooks)
         validated_conf = cls(hooks=validated_hooks)
 
         if not dry_run:
-            set_user_config(validated_conf.KEY(), validated_conf.model_dump())
+            set_user_config(validated_conf.KEY(), validated_conf)
 
 
 class BaseWebhookUserConfig(BaseUserConfig):
@@ -102,17 +118,24 @@ class BaseWebhookUserConfig(BaseUserConfig):
 
     @classmethod
     def save_to_db(cls, values: RawWebhookType, dry_run=False) -> None:
+        key_check(
+            RawWebhookType.__required_keys__,
+            RawWebhookType.__optional_keys__,
+            values.keys(),
+        )
         raw_hooks: list[WebhookType] = values.get("hooks")
         _listType(values=raw_hooks)
 
         for obj in raw_hooks:
-            key_check(WebhookType.__required_keys__, obj.keys())
+            key_check(
+                WebhookType.__required_keys__, WebhookType.__optional_keys__, obj.keys()
+            )
 
         validated_hooks = [DiscordWebhook(url=obj.get("url")) for obj in raw_hooks]
         validated_conf = cls(hooks=validated_hooks)
 
         if not dry_run:
-            set_user_config(validated_conf.KEY(), validated_conf.model_dump())
+            set_user_config(validated_conf.KEY(), validated_conf)
 
 
 class WatchlistWebhooksUserConfig(BaseMentionWebhookUserConfig):
@@ -124,8 +147,6 @@ class CameraWebhooksUserConfig(BaseMentionWebhookUserConfig):
 
 
 class AdminPingWebhooksUserConfig(BaseMentionWebhookUserConfig):
-    pass
-
     trigger_words: list[str] = pydantic.Field(default_factory=list)
 
     @pydantic.field_validator("trigger_words")
@@ -144,7 +165,11 @@ class AdminPingWebhooksUserConfig(BaseMentionWebhookUserConfig):
         _listType(values=raw_hooks)
 
         for obj in raw_hooks:
-            key_check(WebhookMentionType.__required_keys__, obj.keys())
+            key_check(
+                WebhookMentionType.__required_keys__,
+                WebhookMentionType.__optional_keys__,
+                obj.keys(),
+            )
 
         validated_hooks = parse_raw_mention_hooks(raw_hooks)
         validated_conf = AdminPingWebhooksUserConfig(
@@ -153,7 +178,7 @@ class AdminPingWebhooksUserConfig(BaseMentionWebhookUserConfig):
         )
 
         if not dry_run:
-            set_user_config(validated_conf.KEY(), validated_conf.model_dump())
+            set_user_config(validated_conf.KEY(), validated_conf)
 
 
 class ChatWebhooksUserConfig(BaseWebhookUserConfig):
@@ -165,7 +190,9 @@ class ChatWebhooksUserConfig(BaseWebhookUserConfig):
         _listType(values=raw_hooks)
 
         for obj in raw_hooks:
-            key_check(WebhookType.__required_keys__, obj.keys())
+            key_check(
+                WebhookType.__required_keys__, WebhookType.__optional_keys__, obj.keys()
+            )
 
         validated_hooks = [DiscordWebhook(url=obj.get("url")) for obj in raw_hooks]
         validated_conf = ChatWebhooksUserConfig(
@@ -174,7 +201,7 @@ class ChatWebhooksUserConfig(BaseWebhookUserConfig):
         )
 
         if not dry_run:
-            set_user_config(validated_conf.KEY(), validated_conf.model_dump())
+            set_user_config(validated_conf.KEY(), validated_conf)
 
 
 class AuditWebhooksUserConfig(BaseWebhookUserConfig):
@@ -191,7 +218,9 @@ class KillsWebhooksUserConfig(BaseWebhookUserConfig):
         _listType(values=raw_hooks)
 
         for obj in raw_hooks:
-            key_check(WebhookType.__required_keys__, obj.keys())
+            key_check(
+                WebhookType.__required_keys__, WebhookType.__optional_keys__, obj.keys()
+            )
 
         validated_hooks = [DiscordWebhook(url=obj.get("url")) for obj in raw_hooks]
         validated_conf = KillsWebhooksUserConfig(
@@ -201,7 +230,7 @@ class KillsWebhooksUserConfig(BaseWebhookUserConfig):
         )
 
         if not dry_run:
-            set_user_config(validated_conf.KEY(), validated_conf.model_dump())
+            set_user_config(validated_conf.KEY(), validated_conf)
 
 
 def parse_raw_mention_hooks(
@@ -209,9 +238,9 @@ def parse_raw_mention_hooks(
 ) -> list["DiscordMentionWebhook"]:
     validated_hooks: list[DiscordMentionWebhook] = []
     for raw_hook in raw_hooks:
-        user_mentions = raw_hook.get("user_mentions")
+        user_mentions = raw_hook.get("user_mentions", [])
         user_ids = set(user_mentions)
-        role_mentions = raw_hook.get("role_mentions")
+        role_mentions = raw_hook.get("role_mentions", [])
         role_ids = set(role_mentions)
 
         h = DiscordMentionWebhook(

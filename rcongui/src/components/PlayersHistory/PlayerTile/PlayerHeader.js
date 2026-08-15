@@ -6,21 +6,20 @@ import {
   ListItemAvatar,
   ListItemText,
   Typography,
-} from "@material-ui/core";
+} from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
-import React from "react";
 import { List, Map } from "immutable";
-import Tooltip from "@material-ui/core/Tooltip";
-import FileCopyIcon from "@material-ui/icons/FileCopy";
-import AnnouncementIcon from "@material-ui/icons/Announcement";
-import ListItemSecondaryAction from "@material-ui/core/ListItemSecondaryAction";
-import KeyboardArrowUpIcon from "@material-ui/icons/KeyboardArrowUp";
-import KeyboardArrowDownIcon from "@material-ui/icons/KeyboardArrowDown";
-import { pure } from "recompose";
+import Tooltip from "@mui/material/Tooltip";
+import FileCopyIcon from "@mui/icons-material/FileCopy";
+import AnnouncementIcon from "@mui/icons-material/Announcement";
+import ListItemSecondaryAction from "@mui/material/ListItemSecondaryAction";
+import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { getName } from "country-list";
 import makePlayerProfileUrl from "../../../utils/makePlayerProfileUrl";
+import {Fragment, useState} from "react";
 
-const getCountry = (country) => {
+export const getCountry = (country) => {
   if (country === "" || country === null) {
     return "";
   }
@@ -34,8 +33,8 @@ const getCountry = (country) => {
   );
 };
 
-export const PlayerHeader = pure(({ classes, player }) => {
-  const [showAll, setShowAll] = React.useState(false);
+export const PlayerHeader = ({ player }) => {
+  const [showAll, setShowAll] = useState(false);
   const hasMultipleName = player.get("names") && player.get("names").size > 1;
 
   const playerNames = player.get("names", null)
@@ -61,7 +60,7 @@ export const PlayerHeader = pure(({ classes, player }) => {
           target="_blank"
           color="inherit"
           href={makePlayerProfileUrl(
-            player.get("steam_id_64"),
+            player.get("player_id"),
             firstName.get("name")
           )}
         >
@@ -70,7 +69,7 @@ export const PlayerHeader = pure(({ classes, player }) => {
       </ListItemAvatar>
       <ListItemText
         primary={
-          <React.Fragment>
+          <Fragment>
             {showAll ? (
               <Typography variant="body1">
                 {hasMultipleName ? (
@@ -99,18 +98,18 @@ export const PlayerHeader = pure(({ classes, player }) => {
                 ) : (
                   ""
                 )}
-                {namesByMatch.get(0, "")} {getCountry(country)}
+                {namesByMatch.get(0, firstName?.get("name"))} {getCountry(country)}
               </Typography>
             )}
-          </React.Fragment>
+          </Fragment>
         }
         secondary={
           <Link
             color="inherit"
             component={RouterLink}
-            to={`/player/${player.get("steam_id_64")}`}
+            to={`/records/players/${player.get("player_id")}`}
           >
-            {player.get("steam_id_64")}
+            {player.get("player_id")}
           </Link>
         }
       />
@@ -126,7 +125,7 @@ export const PlayerHeader = pure(({ classes, player }) => {
                   alert("This feature only works if your rcon uses HTTPS");
                   return;
                 }
-                var text = player.get("steam_id_64");
+                var text = player.get("player_id");
                 navigator.clipboard.writeText(text).then(
                   function () {
                     console.log("Async: Copying to clipboard was successful!");
@@ -150,14 +149,14 @@ export const PlayerHeader = pure(({ classes, player }) => {
                   .get("names")
                   .first()
                   .get("name")}\nAliases: ${player
-                  .get("names", new List())
-                  .map((n) => n.get("name"))
-                  .join(" | ")}\nSteamID: ${player.get(
-                  "steam_id_64"
-                )}\nSteam URL: ${makePlayerProfileUrl(
-                  player.get("steam_id_64"),
-                  player.get("names").first().get("name")
-                )}\nType of issue:\nDescription:\nEvidence:`;
+                    .get("names", new List())
+                    .map((n) => n.get("name"))
+                    .join(" | ")}\nPlayer ID: ${player.get(
+                      "player_id"
+                    )}\nSteam URL: ${makePlayerProfileUrl(
+                      player.get("player_id"),
+                      player.get("names").first().get("name")
+                    )}\nType of issue:\nDescription:\nEvidence:`;
                 if (navigator.clipboard === undefined) {
                   alert(`This feature only works if your rcon uses HTTPS.`);
                   return;
@@ -182,4 +181,4 @@ export const PlayerHeader = pure(({ classes, player }) => {
       </ListItemSecondaryAction>
     </ListItem>
   );
-});
+};

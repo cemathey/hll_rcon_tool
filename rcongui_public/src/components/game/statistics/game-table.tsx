@@ -1,0 +1,223 @@
+'use client'
+
+import {
+  ColumnDef,
+  ColumnFiltersState,
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getSortedRowModel,
+  SortingState,
+  useReactTable,
+  VisibilityState,
+} from '@tanstack/react-table'
+
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import React, { useEffect, useMemo, useState } from 'react'
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+
+import { LivePlayer, Player, TeamEnum } from '@/types/player'
+import { useTranslation } from 'react-i18next'
+import { getTeamFromAssociation } from '@/components/game/statistics/utils'
+import { TeamIndicator } from '@/components/game/statistics/team-indicator'
+import SelectBox from '@/components/ui/select-box'
+import { useGameStatsContext } from "@/components/game/statistics/game-stats-container";
+import { useStorageState } from '@/hooks/use-storage-state'
+import { DownloadButton } from "@/components/game/statistics/download-button";
+import { ColumnMenu } from "@/components/game/statistics/column-menu";
+
+interface DataTableProps<TData, TValue> {
+  columns: ColumnDef<TData, TValue>[]
+  data: TData[]
+  tableId: string
+}
+
+export function DataTable<TData extends Player | LivePlayer, TValue>({ columns, data, tableId }: DataTableProps<TData, TValue>) {
+  const [playerFilter, setPlayerFilter] = useState<string[]>([])
+
+  useEffect(() => {
+    table.getColumn('player')?.setFilterValue(playerFilter)
+  }, [playerFilter])
+
+  // Adding selected players as option to keep the selected options visible when switching between different games
+  // Otherwise selected option would be not visible e.g. a selected player is in game1, but not in game2
+  const playerFilterOptions = data
+    .map((player) => ({ value: player.player, label: player.player }))
+    .concat(
+      playerFilter
+        .filter((name) => !data.some((player) => player.player === name))
+        .map((name) => ({ value: name, label: name })),
+    )
+
+  const [sorting, setSorting] = React.useState<SortingState>(() =>
+    data.some((player) => 'status' in player) ? [] : [{ id: 'kills', desc: true }],
+  )
+
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
+
+  const [columnVisibility, setColumnVisibility] = useStorageState<VisibilityState>('column-visibility', {
+    ['kills_per_minute']: false,
+    ['deaths_per_minute']: false,
+    ['kills_streak']: false,
+    ['deaths_without_kill_streak']: false,
+    ['teamkills']: false,
+    ['deaths_by_tk']: false,
+    ['combat']: false,
+    ['defense']: false,
+    ['offense']: false,
+    ['support']: false,
+    ['vehicles_destroyed']: false,
+    ['vehicle_kills']: false,
+  })
+
+  const table = useReactTable({
+    data,
+    columns,
+    onSortingChange: setSorting,
+    getSortedRowModel: getSortedRowModel(),
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    onColumnFiltersChange: setColumnFilters,
+    filterFns: {},
+    state: {
+      sorting,
+      columnFilters,
+      columnVisibility,
+    },
+    onColumnVisibilityChange: setColumnVisibility,
+  })
+
+  const { focusedPlayerId, setFocusedPlayerId } = useGameStatsContext();
+
+  useEffect(() => {
+    if (focusedPlayerId === null) {
+      return;
+    }
+    const element = document.getElementById('row-' + focusedPlayerId);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      const style = ['bg-accent','outline-2', '-outline-offset-2', 'outline-primary', 'outline'];
+      element.classList.add(...style);
+      setTimeout(() => {
+        element.classList.remove(...style);
+      }, 2000);
+    }
+    setFocusedPlayerId(null);
+  }, [focusedPlayerId]);
+
+  const { t } = useTranslation('game')
+
+  const hasStatus = table.getAllColumns().find((c) => c.id === 'status')
+  const hasTeam = table.getAllColumns().find((c) => c.id === 'team')
+  const teamOptions = ['axis', 'allies', 'mixed', 'unknown'] as const
+  const teamCounts = useMemo(
+    () => teamOptions.map((team) => data.filter((player) => getTeamFromAssociation(player.team) === team).length),
+    [data],
+  )
+
+  return (
+    <div className="border w-full divide-y">
+      <div className="flex flex-row justify-between items-start p-2 gap-3">
+        <div className="flex flex-row items-start gap-3 flex-1">
+          {hasStatus && (
+            <Select onValueChange={(value) => table.getColumn('status')?.setFilterValue(value)}>
+              <SelectTrigger className="w-24">
+                <SelectValue placeholder={t('playersTable.status')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('onlineStatusFilter.all')}</SelectItem>
+                <SelectItem value="online">{t('onlineStatusFilter.online')}</SelectItem>
+                <SelectItem value="offline">{t('onlineStatusFilter.offline')}</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          {hasTeam && (
+            <Select onValueChange={(value) => table.getColumn('team')?.setFilterValue(value)}>
+              <SelectTrigger className="max-w-40">
+                <SelectValue placeholder={t('playersTable.team')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  <div className={'pl-5'}>
+                    {t('onlineStatusFilter.all')} ({data.length})
+                  </div>
+                </SelectItem>
+                {teamOptions.map((option, index) => (
+                  <SelectItem key={option} value={option}>
+                    <div className="flex">
+                      <TeamIndicator team={option as TeamEnum} className="m-auto" />
+                      <div className="pl-3">
+                        {t(option)} ({teamCounts[index]})
+                      </div>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {table.getColumn('player') && (
+            <SelectBox
+              options={playerFilterOptions}
+              multiple
+              value={playerFilter}
+              onChange={(values) => Array.isArray(values) && setPlayerFilter(values)}
+              placeholder={`${t('searchPlayer')}...`}
+            />
+          )}
+        </div>
+        <div className={'inline-flex gap-3'}>
+          <DownloadButton data={data} tableId={tableId}/>
+          <ColumnMenu table={table}/>
+        </div>
+      </div>
+      <Table id={tableId} style={{ height: '100%' }}>
+        <TableHeader className="h-12">
+          {table.getHeaderGroups().map((headerGroup) => (
+            <TableRow key={headerGroup.id}>
+              <TableHead className="w-4 text-center pr-0">{'#'}</TableHead>
+              {headerGroup.headers.map((header) => {
+                return (
+                  <TableHead key={header.id} style={{ width: header.column.getSize() }} className="px-1.5">
+                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                  </TableHead>
+                )
+              })}
+            </TableRow>
+          ))}
+        </TableHeader>
+        <TableBody>
+          {table.getRowModel().rows?.length ? (
+            table.getRowModel().rows.map((row, index) => (
+              <TableRow key={row.id} id={'row-' + row.original.player_id} data-state={row.getIsSelected() && 'selected'} className="text-sm h-10">
+                <TableCell className="w-4 text-center pr-0">{index + 1}</TableCell>
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell
+                    key={cell.id}
+                    className="py-0"
+                    style={{ width: cell.column.getSize(), textAlign: 'right' }}
+                  >
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))
+          ) : (
+            <TableRow>
+              {/* +1 for the index column */}
+              <TableCell colSpan={columns.length + 1} className="h-24 text-center">
+                {t('noPlayersFound')}
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}

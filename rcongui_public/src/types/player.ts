@@ -1,0 +1,254 @@
+import { MatchScore } from './api'
+import {Weapon, WeaponType} from './weapon'
+
+type Team = {
+  name: string
+  side: 'allies' | 'axis'
+  score: number
+  img: string
+  country: string
+}
+
+type Teams = {
+  home: Team
+  away: Team
+}
+
+type League = {
+  name: string
+  img: string
+}
+
+type LinkBase = {
+  url: string
+  title: string
+  author: string
+  date: string
+  description: string
+}
+
+type TwitchLink = LinkBase & {
+  type: 'twitch'
+}
+
+type YoutubeLink = LinkBase & {
+  type: 'youtube'
+}
+
+type Link = TwitchLink | YoutubeLink
+
+interface MatchBase {
+  id: number
+  date: string
+  time: string
+  league: League
+  format: string
+  aside: string
+  teams: Teams
+  links?: Link[]
+  map: string
+}
+
+interface CompletedMatch extends MatchBase {
+  length: number
+  completed: true
+  points?: string[]
+}
+
+interface ScheduledMatch extends MatchBase {
+  completed: false
+}
+
+export type Match = CompletedMatch | ScheduledMatch
+
+export interface ServerFinalStats {
+  result: Result
+  command: string
+  arguments?: null
+  failed: boolean
+  error?: null
+  forwards_results?: null
+}
+
+
+export interface PlayerUnit {
+  ts: number
+  team: number
+  squad: number
+  role: number
+}
+
+export interface Result {
+  id: number
+  creation_time: string
+  start: string
+  end: string
+  server_number: number
+  map_name: string
+  player_stats?: Player[] | null
+  match_time: number
+  cap_flips: MatchScore[]
+}
+
+// Base player interface with common properties
+export interface PlayerBase {
+  id: number
+  player_id: string
+  steam_id_64: string
+  player: string
+  platform?: string | null
+  steaminfo?: Steaminfo
+  map_id: number
+  kills: number
+  kills_streak: number
+  kills_by_type: Record<WeaponType, number>
+  deaths: number
+  deaths_by_type: Record<WeaponType, number>
+  deaths_without_kill_streak: number
+  teamkills: number
+  teamkills_streak: number
+  deaths_by_tk: number
+  deaths_by_tk_streak: number
+  nb_vote_started: number
+  nb_voted_yes: number
+  nb_voted_no: number
+  time_seconds: number
+  kills_per_minute: number
+  deaths_per_minute: number
+  kill_death_ratio: number
+  longest_life_secs: number
+  shortest_life_secs: number
+  combat: number
+  offense: number
+  defense: number
+  support: number
+  most_killed: Record<string, number>
+  death_by: Record<string, number>
+  weapons: Record<Weapon, number>
+  death_by_weapons: Record<Weapon, number> | null
+  team: PlayerTeamAssociation
+  level: number
+  kills_and_assists: number
+  deaths_and_redeploys: number
+  vehicle_kills: number
+  vehicles_destroyed: number
+  units: PlayerUnit[]
+  encounters: KillInfo[]
+}
+
+export interface KillInfo {
+    action: "KILL" | "DEATH"
+    player_id: string
+    player_name: string
+    ts: number
+    weapon: string
+}
+
+export interface PlayerTeamAssociation {
+  side: TeamEnum,
+  confidence: 'strong' | 'mixed',
+}
+
+export enum TeamEnum {
+  AXIS = 'axis',
+  ALLIES = 'allies',
+  MIXED = 'mixed',
+  UNKNOWN = 'unknown',
+}
+
+export enum FactionEnum {
+  CW = 'cw',
+  GB = 'gb',
+  GER = 'ger',
+  RUS = 'rus',
+  US = 'us',
+  CAN = 'can',
+}
+
+export enum StatusEnum {
+  ONLINE = 'online',
+  OFFLINE = 'offline',
+  IDLE = 'idle'
+}
+
+// Live player interface with status
+export interface LivePlayer extends Omit<PlayerBase, "team" | "units" | "encounters"> {
+  status: StatusEnum | null
+  faction: FactionEnum | null
+  team: string | null
+}
+
+export type Player = PlayerBase | LivePlayer
+
+export interface Steaminfo {
+  id: number
+  created: string
+  updated: string | null
+  profile: Profile | null
+  country: string | null
+  bans: {
+    active: boolean
+    reason: string
+    time_left: number
+  } | null
+  has_bans: boolean
+}
+
+export interface Profile {
+  avatar: string
+  gameid: string
+  steamid: string
+  realname: string
+  loccityid: number
+  avatarfull: string
+  avatarhash: string
+  lastlogoff: number
+  profileurl: string
+  personaname: string
+  timecreated: number
+  avatarmedium: string
+  gameserverip: string
+  locstatecode: string
+  personastate: number
+  profilestate: number
+  gameextrainfo: string
+  primaryclanid: string
+  loccountrycode: string
+  gameserversteamid: string
+  personastateflags: number
+  communityvisibilitystate: number
+}
+
+type TeamsStats = {
+  kills: number
+  deaths: number
+  killsCategory: {
+    infantry: number
+    armor: number
+    artillery: number
+    other: number
+  }
+  points: {
+    combat: number
+    support: number
+    offensive: number
+    defensive: number
+  }
+  players: Player[]
+}
+
+type FaceoffBase = {
+  kills: number
+  deaths: number
+  diff: number
+}
+
+type FaceoffID = FaceoffBase & {
+  id: string
+}
+
+type FaceoffName = FaceoffBase & {
+  name: string
+}
+
+export type Faceoff = FaceoffID | FaceoffName
