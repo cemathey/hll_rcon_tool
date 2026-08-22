@@ -53,6 +53,7 @@ x-backend: &backend
       ]
     start_period: 30s
     interval: 15s
+    start_interval: 2s
     timeout: 30s
     retries: 5
   depends_on:

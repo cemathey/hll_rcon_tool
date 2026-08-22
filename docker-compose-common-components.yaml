@@ -8,6 +8,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
       interval: 15s
+      start_interval: 2s
       timeout: 30s
       retries: 5
     volumes:
@@ -32,6 +33,7 @@ services:
       test:
         ["CMD", "pg_isready", "-U", "${HLL_DB_USER}", "-d", "${HLL_DB_NAME}"]
       interval: 15s
+      start_interval: 2s
       timeout: 30s
       retries: 5
       start_period: 80s
@@ -66,6 +68,7 @@ services:
       test: ["CMD-SHELL", "test -f /code/rconweb/maintenance-container-healthy"]
       start_period: 30s
       interval: 15s
+      start_interval: 2s
       timeout: 30s
       retries: 5
     depends_on:
@@ -75,6 +78,9 @@ services:
         condition: service_healthy
     volumes:
       - ./logs:/logs/
+      # collectstatic now runs here (once) instead of once per backend_N —
+      # needs the same shared static dir every backend_N/frontend_N mounts.
+      - ./static:/static/
     networks:
       - common
   # This is used to handle webhooks to discord (and other services in the future)
@@ -112,6 +118,7 @@ services:
         ]
       start_period: 30s
       interval: 15s
+      start_interval: 2s
       timeout: 30s
       retries: 5
     depends_on:
