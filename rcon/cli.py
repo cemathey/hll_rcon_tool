@@ -2,8 +2,9 @@ import inspect
 import json
 import logging
 import sys
+import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 import click
 import pydantic
@@ -19,6 +20,7 @@ from rcon import auto_settings, broadcast, routines
 from rcon.automods import automod
 from rcon.blacklist import BlacklistCommandHandler
 from rcon.cache_utils import RedisCached, get_redis_pool, invalidates
+from rcon.connection import HLLServerError
 from rcon.discord_chat import get_handler
 from rcon.logs.loop import LogLoop, load_generic_hooks
 from rcon.logs.recorder import LogRecorder
@@ -39,6 +41,37 @@ from rcon.utils import ApiKey
 from rcon.vote_map import VoteMap
 
 logger = logging.getLogger(__name__)
+
+_RCON_RETRY_BACKOFF_SECS = 30
+
+
+def _restart_on_rcon_error(run_fn: Callable[[], None], name: str) -> None:
+    """auto_settings, broadcast_loop, routines, expiring_vips, and seed_vip
+    are all supervisord-managed `while True:` loops that never caught a
+    transient/persistent RCON connectivity failure (raw OSError subclasses
+    like ConnectionRefusedError, or HLLServerError for protocol-level
+    failures) anywhere in their loop body. The first RCON hiccup killed the
+    whole process; supervisord's near-instant respawn (startsecs=1) turned
+    that into a tight crash loop pegging a CPU core at 400%+ for as long as
+    the game server stayed unreachable — observed live across multiple
+    fleet nodes causing sustained high CPU/memory. Restarting the loop
+    function itself here, after a pause, means an offline game server
+    degrades to "quietly retrying" instead of "burning a CPU core forever,"
+    without changing behavior for any other kind of bug (those still
+    propagate and crash normally, correctly surfacing real issues).
+
+    run_fn returning on its own (e.g. seed_vip noticing it's disabled) is
+    treated as an intentional exit, not a crash — no retry."""
+    while True:
+        try:
+            run_fn()
+            return
+        except (OSError, HLLServerError) as e:
+            logger.error(
+                "%s: RCON connection error, retrying in %ss: %s",
+                name, _RCON_RETRY_BACKOFF_SECS, e,
+            )
+            time.sleep(_RCON_RETRY_BACKOFF_SECS)
 
 
 def _current_game() -> str:
@@ -100,28 +133,28 @@ def run_log_stream():
 
 @cli.command(name="broadcast_loop")
 def run_broadcast_loop():
-    broadcast.run()
+    _restart_on_rcon_error(broadcast.run, "broadcast_loop")
 
 
 @cli.command(name="auto_settings")
 def auto_settings_loop():
-    auto_settings.run()
+    _restart_on_rcon_error(auto_settings.run, "auto_settings")
 
 
 @cli.command(name="routines")
 def run_routines():
-    routines.run()
+    _restart_on_rcon_error(routines.run, "routines")
 
 
 @cli.command(name="expiring_vips")
 def run_expiring_vips():
-    rcon.expiring_vips.service.run()
+    _restart_on_rcon_error(rcon.expiring_vips.service.run, "expiring_vips")
 
 
 @cli.command(name="seed_vip")
 def run_seed_vip():
     try:
-        rcon.seed_vip.service.run()
+        _restart_on_rcon_error(rcon.seed_vip.service.run, "seed_vip")
     except:  # noqa
         logger.exception("seed VIP stopped")
         sys.exit(1)
