@@ -681,8 +681,11 @@ def convert_win_player_ids():
 
 @cli.command(name="remove_orphaned_map_ids")
 def remove_orphaned_map_ids():
-    vm = VoteMap()
     try:
+        # VoteMap() itself can hit the game server (reset_map_whitelist, in
+        # __init__) before we ever reach the get_maps() call below, so it
+        # needs to be inside this try too.
+        vm = VoteMap()
         known_map_ids = [m.id for m in ctl.get_maps()]
     except Exception as e:  # noqa
         logger.error(
