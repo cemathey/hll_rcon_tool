@@ -30,18 +30,19 @@ def get_server_list(request):
     logger.debug(keys)
     names = []
     for host, key in keys.items():
-        if key == my_key:
-            continue
         url = f"http://{host}/api/get_connection_info"
         try:
             res = requests.get(
                 url,
                 timeout=5,
-                cookies=dict(sessionid=request.COOKIES.get("sessionid")),
+                cookies={"sessionid": request.COOKIES.get("sessionid")},
                 headers=headers,
             )
             if res.ok:
-                names.append(res.json()["result"])
+                server_info = res.json()["result"]
+                if key == my_key:
+                    server_info["this_server"] = True
+                names.append(server_info)
         except requests.exceptions.RequestException:
             logger.warning(f"Unable to connect with {url}")
 
