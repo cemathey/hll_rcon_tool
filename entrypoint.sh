@@ -8,12 +8,16 @@ env
 if [ "$1" == 'maintenance' ]
 then
   alembic upgrade head
-  # Convert old stye player IDs to new style (md5 hash)
-  # TODO: we can eventually remove this in a few releases once old installs have updated their game servers and CRCON
-  # SERVER_NUMBER is mandatory and not otherwise set in the maintenance container; only want it to run once
-  # LOGGING_PATH and LOGGING_FILENAME need to be passed to get it to log to the directory that is bind mounted
-  SERVER_NUMBER=1 LOGGING_PATH=/logs/ LOGGING_FILENAME=startup.log python -m rcon.cli merge_duplicate_player_ids
-  SERVER_NUMBER=1 LOGGING_PATH=/logs/ LOGGING_FILENAME=startup.log python -m rcon.cli convert_win_player_ids
+  # merge_duplicate_player_ids / convert_win_player_ids removed from here:
+  # both were one-time historical cleanups (old-style Windows Store player
+  # IDs, and pre-unique-constraint duplicate rows) that ran unconditionally
+  # on every maintenance boot forever. steam_id_64.steam_id_64 now has a
+  # live unique index, so merge_duplicate_player_ids can never find
+  # anything again; a fleet sample (several containers, including the
+  # oldest known install) found zero remaining old-style IDs for
+  # convert_win_player_ids. Both were full/near-full PlayerID table scans
+  # on every boot — pure, and growing, dead weight. Still available to run
+  # manually via `python -m rcon.cli <name>` if ever needed.
   # Upgrade durable Redis structures before any server-specific container starts.
   # The command discovers every populated logical Redis database so multi-server
   # installations are migrated in the same maintenance pass.
