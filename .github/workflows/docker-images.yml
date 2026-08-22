@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "*"
+      # Fork-only patched tags (see CRCON_FORK_RELEASES.md) publish to the
+      # separate cericmathey/hll_rcon_tool-hostinggig repos via manual
+      # dispatch (build-docker-images-hostinggig.yml) instead — never to
+      # these public repos, and never :latest here.
+      - "!*-hostinggig*"
 
 jobs:
   backend:
