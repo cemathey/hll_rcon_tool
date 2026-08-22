@@ -63,7 +63,7 @@ def run():
         try:
             toggle_votekick(rcon)
             VoteMap().send_reminder()
-        except CommandFailedError:
+        except HLLCommandFailedError:
             max_fails -= 1
             if max_fails <= 0:
                 logger.exception("Routines 5 failures in a row. Stopping")
