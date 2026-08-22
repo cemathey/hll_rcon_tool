@@ -7,7 +7,7 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_COMPILE_BYTECODE=1
 
 RUN apt-get update -y && \
-    apt-get install -y cron logrotate git procps && \
+    apt-get install -y --no-install-recommends cron logrotate git procps && \
     rm -rf /var/lib/apt/lists/* && \
     pip install uv
 

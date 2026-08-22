@@ -15,7 +15,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.version }}
-          fetch-depth: 0
+          # Shallow + explicit fetch-tags, not full history — see
+          # build-docker-images-hostinggig.yml's comment for why (full
+          # history was baking ~100MB of unrelated .git objects into the
+          # image's COPY layer without it, while git describe --tags still
+          # needs the tag ref present).
+          fetch-tags: true
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
