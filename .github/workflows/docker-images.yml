@@ -7,8 +7,11 @@ on:
       # Fork-only patched tags (see CRCON_FORK_RELEASES.md) publish to the
       # separate cericmathey/hll_rcon_tool-hostinggig repos via manual
       # dispatch (build-docker-images-hostinggig.yml) instead — never to
-      # these public repos, and never :latest here.
+      # these public repos, and never :latest here. Tag naming convention
+      # switched from -hostinggig to -hlladmin (2026-08-22, docker repo
+      # names unchanged) — both excluded so older tags stay protected too.
       - "!*-hostinggig*"
+      - "!*-hlladmin*"
 
 jobs:
   backend:
