@@ -7,7 +7,7 @@ from pydantic import Field, field_validator
 
 from rcon.conditions import Condition, create_condition
 from rcon.models import PlayerID
-from rcon.rcon import Rcon, get_rcon
+from rcon.rcon import Rcon
 from rcon.user_config.chat_commands import (
     BaseChatCommand,
     BaseChatCommandType,
@@ -44,10 +44,14 @@ class RConChatCommand(BaseChatCommand):
     def only_valid_commands(cls, vs: dict[str, dict] | None) -> dict[str, dict] | None:
         if vs is None:
             return vs
+        # Checked against the Rcon class, not a get_rcon() instance: this
+        # validator only needs to confirm the method name exists, and
+        # get_rcon() eagerly builds server credentials from HLL_HOST/PORT/
+        # PASSWORD env vars — which are blank (and fail int validation) in
+        # the maintenance container for any org whose slot 1 isn't
+        # provisioned, crashing rcon.cli at import time before main() runs.
         for name in vs:
-            try:
-                get_rcon().__getattribute__(name)
-            except AttributeError:
+            if not hasattr(Rcon, name):
                 raise ValueError(f"'{name}' is not a valid RCon command.")
         return vs
 
