@@ -11,6 +11,7 @@ services:
       start_interval: 2s
       timeout: 30s
       retries: 5
+      start_period: 30s
     volumes:
       - ./redis_data:/data
       - ./config:/usr/local/etc/redis:ro
