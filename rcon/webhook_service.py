@@ -128,10 +128,12 @@ def clear_queue_by_message_id(red: redis.StrictRedis, queue_id: str, message_id:
     """
 
     # Traverse the list and identify all the values that contain message_id
-    # and then LREM them
+    # and then LREM them. Not every queued message is an edit (only the
+    # scoreboard ever edits), so a plain post has no "message_id" in its
+    # payload at all -- .get() so those don't crash this scan.
     for raw_message in red.lrange(queue_id, 0, -1):
         message = unpack_message(raw_message=raw_message)
-        if message_id == message.payload["message_id"]:
+        if message_id == message.payload.get("message_id"):
             red.lrem(queue_id, 0, raw_message)
 
 
@@ -626,13 +628,18 @@ async def dequeue_message(
             logger.error(
                 f"Received HTTP 404 from the webhook with webhook ID: {message.payload.get('webhook_id')} message ID: {message.payload.get('message_id')} purging the queue for this message ID"
             )
-            # Mark this specific message ID as a 404 failure
-            set_message_edit_404_failure(
-                red=red, message_id=message.payload["message_id"]
-            )
-            clear_queue_by_message_id(
-                red=red, queue_id=queue_id, message_id=message.payload["message_id"]
-            )
+            # A 404 here means either an edit target no longer exists (has a
+            # message_id) or the webhook itself is invalid/deleted (a plain
+            # post, no message_id in the payload — the common case, since
+            # only the scoreboard ever edits). Only the former has a message
+            # ID to mark/purge by.
+            message_id = message.payload.get("message_id")
+            if message_id is not None:
+                # Mark this specific message ID as a 404 failure
+                set_message_edit_404_failure(red=red, message_id=message_id)
+                clear_queue_by_message_id(
+                    red=red, queue_id=queue_id, message_id=message_id
+                )
             # Flag this webhook as having an error
             set_webhook_error(
                 red=red,
