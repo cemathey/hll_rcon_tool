@@ -6,8 +6,13 @@ RUN apt update && apt install -y git
 
 WORKDIR /code
 
+# Install deps from just the lockfile first — this layer (the slow part)
+# then only invalidates when a dependency actually changes, not on every
+# source/UI change, which is what was forcing a full reinstall on nearly
+# every release before.
+COPY rcongui/package.json rcongui/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY rcongui/ .
-RUN npm ci
 ENV REACT_APP_API_URL=/api/
 COPY .git/ .git/
 COPY assets/shared/ /code/public/
@@ -20,8 +25,9 @@ FROM $buildImage AS publicbuild
 
 WORKDIR /code_public
 
+COPY rcongui_public/package.json rcongui_public/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY rcongui_public/ .
-RUN npm ci
 COPY assets/shared/ /code_public/public/
 RUN npm run build
 RUN mv /code_public/dist /www_public

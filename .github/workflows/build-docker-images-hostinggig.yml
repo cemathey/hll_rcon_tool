@@ -37,8 +37,8 @@ jobs:
           # COPY layer, the one layer that changes (and gets re-pulled) on
           # every single release.
           fetch-tags: true
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      # No QEMU — amd64-only build (see the platforms note below), so no
+      # emulation is needed.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to Docker Hub
@@ -46,18 +46,31 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # This workflow only ever builds for our own fleet (all x86_64) —
+      # unlike docker-image.yml/docker-images.yml, which publish to the
+      # public repos the open-source community pulls from and do need
+      # arm64. Dropping it here (QEMU-emulated arm64 is much slower than
+      # native) plus GHA layer caching (separately scoped per image so the
+      # backend and frontend caches don't stomp each other) are the two
+      # biggest levers on build time — a from-scratch run still pays full
+      # price once, but every build after that reuses unchanged layers
+      # (base image, apt/uv/npm installs) instead of redoing them.
       - name: Build and push backend
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: cericmathey/hll_rcon_tool-hostinggig:${{ github.event.inputs.tag }}
+          cache-from: type=gha,scope=hostinggig-backend
+          cache-to: type=gha,mode=max,scope=hostinggig-backend
       - name: Build and push frontend
         uses: docker/build-push-action@v5
         with:
           file: Dockerfile-frontend
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: cericmathey/hll_rcon_tool_frontend-hostinggig:${{ github.event.inputs.tag }}
+          cache-from: type=gha,scope=hostinggig-frontend
+          cache-to: type=gha,mode=max,scope=hostinggig-frontend
