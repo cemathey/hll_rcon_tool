@@ -203,7 +203,21 @@ class HLLConnection:
         self._response_cache: TTLCache[int, Response] = TTLCache(maxsize=1024, ttl=60)
 
     def connect(self, host, port, password: str):
-        self.sock.connect((host, port))
+        try:
+            self.sock.connect((host, port))
+        except OSError as e:
+            # Raw socket errors (timed out, connection refused, unreachable —
+            # e.g. the actual game server is down) previously propagated as
+            # bare OSError subclasses all the way up through Django views
+            # with no handler anywhere in the stack, taking down the whole
+            # API (including endpoints that don't need a live RCON
+            # connection) instead of the one command that needed it.
+            # Normalizing into the existing HLLServerError hierarchy here
+            # lets every caller's existing HLLCommandFailedError/
+            # HLLServerError handling catch this too.
+            raise HLLBrokenConnectionError(
+                f"Could not connect to {host}:{port}: {e}"
+            ) from e
 
         server_hello = self.exchange("ServerConnect", 2, "")
         server_hello.raise_for_status()
