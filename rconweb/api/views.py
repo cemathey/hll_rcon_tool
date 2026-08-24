@@ -22,6 +22,7 @@ from rconweb.settings import TAG_VERSION
 
 from rcon.api_commands import get_rcon_api
 from rcon.commands import HLLCommandFailedError
+from rcon.connection import HLLBrokenConnectionError, HLLServerError
 from rcon.discord import send_to_discord_audit
 from rcon.types import (
     PublicInfoMapType,
@@ -101,9 +102,29 @@ def get_public_info(request):
         match_time = cached_cur_map["match_time"]
 
     config = RconServerSettingsUserConfig.load_from_db()
-    gamestate = rcon_api.get_gamestate()
-    slots = rcon_api.get_slots()
-    server_config = rcon_api.get_server_config()
+
+    # The game server itself being unreachable (down, wrong RCON
+    # credentials, network issue) is a real, expected condition, not a
+    # bug — this endpoint is polled by health checks, dashboards, and
+    # provisioning tooling specifically to learn whether CRCON's own web
+    # app is up, which is a separate question from whether the RCON
+    # connection is currently working. Previously any of these calls
+    # raising left this whole endpoint 500ing with no handler anywhere in
+    # the stack, which took down the API for that too.
+    try:
+        gamestate = rcon_api.get_gamestate()
+        slots = rcon_api.get_slots()
+        server_config = rcon_api.get_server_config()
+        vote_status = rcon_api.get_votemap_status()
+        server_name = rcon_api.get_name()
+    except HLLServerError as e:
+        return api_response(
+            result=None,
+            failed=True,
+            error=str(e),
+            command="get_public_info",
+        )
+
     current_players = slots["current_players"]
     max_players = slots["max_players"]
 
@@ -125,12 +146,11 @@ def get_public_info(request):
         "allied": gamestate["num_allied_players"],
         "axis": gamestate["num_axis_players"],
     }
-    vote_status = rcon_api.get_votemap_status()
 
     public_stats_port = os.getenv("PUBLIC_STATS_PORT", None)
     public_stats_port_https = os.getenv("PUBLIC_STATS_PORT_HTTPS", None)
     name: PublicInfoNameType = {
-        "name": rcon_api.get_name(),
+        "name": server_name,
         "short_name": config.short_name,
         "public_stats_port": int(public_stats_port) if public_stats_port else None,
         "public_stats_port_https": (
@@ -319,6 +339,15 @@ def expose_api_endpoint(
         except HLLCommandFailedError as e:
             failure = True
             error = e.args[0] if e.args else None
+        except HLLBrokenConnectionError as e:
+            # The game server itself is unreachable (down, wrong RCON
+            # credentials, network issue) — a real, expected condition, not
+            # a bug. Report it the same way as a failed command instead of
+            # 500ing the whole API, so endpoints that don't depend on a
+            # live RCON connection (and staff/customer tooling polling for
+            # "is CRCON's own web app up") keep working.
+            failure = True
+            error = str(e)
 
         response = RconJsonResponse(
             {
