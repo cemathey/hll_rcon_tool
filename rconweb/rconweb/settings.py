@@ -16,11 +16,7 @@ import re
 import socket
 from subprocess import run
 
-import sentry_sdk
 from pydantic import ValidationError
-from sentry_sdk import configure_scope
-from sentry_sdk.integrations.django import DjangoIntegration
-from sentry_sdk.integrations.logging import LoggingIntegration
 
 from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
 
@@ -93,12 +89,19 @@ LOGGING = {
 }
 
 
-sentry_logging = LoggingIntegration(
-    level=logging.DEBUG,  # Capture debug and above as breadcrumbs
-    event_level=logging.ERROR,  # Send errors as events
-)
-
 if dsn := os.getenv("SENTRY_DSN"):
+    # only import if actually using sentry (saves ~7.8MB physical RAM)
+    # since almost no one uses it
+    import sentry_sdk
+    from sentry_sdk import configure_scope
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_logging = LoggingIntegration(
+        level=logging.DEBUG,  # Capture debug and above as breadcrumbs
+        event_level=logging.ERROR,  # Send errors as events
+    )
+
     sentry_sdk.init(
         dsn=dsn,
         integrations=[DjangoIntegration(), sentry_logging],
@@ -107,8 +110,8 @@ if dsn := os.getenv("SENTRY_DSN"):
         send_default_pii=True,
     )
 
-with configure_scope() as scope:
-    scope.set_extra("instance", ENVIRONMENT)
+    with configure_scope() as scope:
+        scope.set_extra("instance", ENVIRONMENT)
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
