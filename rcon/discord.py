@@ -4,10 +4,10 @@ from functools import lru_cache
 from typing import Any
 
 import requests
-from discord.utils import escape_markdown
 from discord_webhook import DiscordWebhook
 from pydantic import HttpUrl
 
+from rcon.discord_markdown import escape_markdown
 from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
 from rcon.user_config.utils import (
     DISCORD_AUDIT_FORMAT,

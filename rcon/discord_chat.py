@@ -4,11 +4,11 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from functools import lru_cache
 
-import discord.utils
 from discord_webhook import DiscordEmbed, DiscordWebhook
 
 from rcon.cache_utils import ttl_cache
 from rcon.discord import make_hook
+from rcon.discord_markdown import escape_markdown, escape_mentions
 from rcon.logs.loop import on_chat, on_kill, on_tk
 from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
 from rcon.user_config.webhooks import (
@@ -49,8 +49,8 @@ logger = logging.getLogger(__name__)
 
 @lru_cache
 def escape_string(string):
-    string = discord.utils.escape_markdown(string)
-    string = discord.utils.escape_mentions(string)
+    string = escape_markdown(string)
+    string = escape_mentions(string)
     return string
 
 
@@ -108,8 +108,8 @@ class DiscordWebhookHandler:
         message = log["sub_content"]
 
         if not allow_mentions:
-            message = discord.utils.escape_mentions(message)
-        message = discord.utils.escape_markdown(message)
+            message = escape_mentions(message)
+        message = escape_markdown(message)
 
         player = log["player_name_1"].ljust(25)
         player_id = log["player_id_1"]
@@ -149,7 +149,7 @@ class DiscordWebhookHandler:
                     [id_ for h in self.admin_wh_config.hooks for id_ in h.role_mentions]
                 )
                 content = " ".join(mentions)
-                embed.description = discord.utils.escape_mentions("".join(msg_words))
+                embed.description = escape_mentions("".join(msg_words))
 
         return content, embed, triggered
 

@@ -10,7 +10,6 @@ from typing import Any
 
 import psutil
 import pydantic
-from discord.utils import escape_markdown
 from django.http import (
     HttpRequest,
     HttpResponse,
@@ -24,6 +23,7 @@ from rcon.api_commands import get_rcon_api
 from rcon.commands import HLLCommandFailedError
 from rcon.connection import HLLBrokenConnectionError, HLLServerError
 from rcon.discord import send_to_discord_audit
+from rcon.discord_markdown import escape_markdown
 from rcon.types import (
     PublicInfoMapType,
     PublicInfoNameType,

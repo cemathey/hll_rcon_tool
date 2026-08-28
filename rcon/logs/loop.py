@@ -8,11 +8,11 @@ from collections.abc import Callable, Iterable
 from functools import partial
 
 import discord_webhook
-from discord.utils import escape_markdown
 
 from rcon.cache_utils import get_redis_client, ttl_cache
 from rcon.connection import HLLServerError
 from rcon.discord import make_hook
+from rcon.discord_markdown import escape_markdown
 from rcon.maps import GameMode, get_theoretical_match_time
 from rcon.maps import Team as MapTeam
 from rcon.rcon import get_rcon

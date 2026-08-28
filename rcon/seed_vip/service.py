@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from logging import getLogger
 from time import sleep
 
-import discord
 import humanize
 
 from rcon.api_commands import get_rcon_api
@@ -180,6 +179,8 @@ def run():
                         num_axis_players=gamestate["num_axis_players"],
                     )
                     if embed:
+                        import discord
+
                         for wh in config.hooks:
                             wh = discord.SyncWebhook.from_url(url=str(wh.url))
                             wh.send(embed=embed)
@@ -253,6 +254,8 @@ def run():
                         last_bucket_announced = True
 
                     if embed:
+                        import discord
+
                         for wh in config.hooks:
                             wh = discord.SyncWebhook.from_url(url=str(wh.url))
                             wh.send(embed=embed)
