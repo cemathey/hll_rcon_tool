@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 from functools import wraps
 from typing import Final
 
-from discord.utils import escape_markdown
 from discord_webhook import DiscordEmbed
 
 from rcon import steam_utils
@@ -19,6 +18,7 @@ from rcon.blacklist import (
 from rcon.cache_utils import get_redis_client, invalidates
 from rcon.commands import HLLCommandFailedError
 from rcon.discord import get_prepared_discord_hooks, send_to_discord_audit
+from rcon.discord_markdown import escape_markdown
 from rcon.logs.loop import (
     on_camera,
     on_chat,

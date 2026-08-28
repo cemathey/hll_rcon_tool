@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from logging import getLogger
+from typing import TYPE_CHECKING
 
-import discord
 from humanize import naturaldelta, naturaltime
+
+# Maintain type checking/annotations for the lazy import below
+if TYPE_CHECKING:
+    import discord
 
 from rcon.api_commands import RconAPI
 from rcon.seed_vip.models import (
@@ -130,6 +136,8 @@ def make_seed_announcement_embed(
 ) -> discord.Embed | None:
     if not message:
         return
+
+    import discord
 
     logger.debug(f"{num_allied_players=} {num_axis_players=}")
 
