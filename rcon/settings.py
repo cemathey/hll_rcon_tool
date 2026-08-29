@@ -70,79 +70,92 @@ def check_config() -> ServerInfo:
 
 
 # TODO add sentry
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "filters": {
-        "environment": {
-            "()": _EnvironmentFilter,
-        },
-    },
-    "formatters": {
-        "console": {
-            "()": "colorlog.ColoredFormatter",
-            "format": (
-                f"[%(asctime)s][%(log_color)s%(levelname)s%(reset)s][%(environment)s][{TAG_VERSION}] "
-                "%(name)s %(filename)s:%(funcName)s:%(lineno)d | %(message)s"
-            ),
-            "log_colors": {
-                "DEBUG": "cyan",
-                "INFO": "green",
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "bold_red",
+def build_logging_config() -> dict:
+    # Wrapped in a function (rather than a plain module-level dict literal)
+    # so rcon.worker_launcher can rebuild this from a forked child's own
+    # freshly-set env vars (LOGGING_FILENAME et al) after fork — the module
+    # is only imported once in the launcher's parent process, so the plain
+    # dict below would otherwise stay frozen to the *parent's* env forever.
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "filters": {
+            "environment": {
+                "()": _EnvironmentFilter,
             },
-            "style": "%",
         },
-        "file": {
-            "format": (
-                f"[%(asctime)s][%(levelname)s][%(environment)s][{TAG_VERSION}] "
-                "%(name)s %(filename)s:%(funcName)s:%(lineno)d | %(message)s"
-            ),
+        "formatters": {
+            "console": {
+                "()": "colorlog.ColoredFormatter",
+                "format": (
+                    f"[%(asctime)s][%(log_color)s%(levelname)s%(reset)s][%(environment)s][{TAG_VERSION}] "
+                    "%(name)s %(filename)s:%(funcName)s:%(lineno)d | %(message)s"
+                ),
+                "log_colors": {
+                    "DEBUG": "cyan",
+                    "INFO": "green",
+                    "WARNING": "yellow",
+                    "ERROR": "red",
+                    "CRITICAL": "bold_red",
+                },
+                "style": "%",
+            },
+            "file": {
+                "format": (
+                    f"[%(asctime)s][%(levelname)s][%(environment)s][{TAG_VERSION}] "
+                    "%(name)s %(filename)s:%(funcName)s:%(lineno)d | %(message)s"
+                ),
+            },
         },
-    },
-    "handlers": {
-        "console": {
-            "level": "DEBUG",
-            "class": "logging.StreamHandler",
-            "formatter": "console",
-            "filters": ["environment"],
+        "handlers": {
+            "console": {
+                "level": "DEBUG",
+                "class": "logging.StreamHandler",
+                "formatter": "console",
+                "filters": ["environment"],
+            },
+            "file": {
+                "level": "DEBUG",
+                "class": "logging.FileHandler",
+                "formatter": "file",
+                "filters": ["environment"],
+                "filename": os.path.join(
+                    os.getenv("LOGGING_PATH", ""),
+                    os.getenv("LOGGING_FILENAME", f"{socket.gethostname()}.log"),
+                ),
+            },
         },
-        "file": {
-            "level": "DEBUG",
-            "class": "logging.FileHandler",
-            "formatter": "file",
-            "filters": ["environment"],
-            "filename": os.path.join(
-                os.getenv("LOGGING_PATH", ""),
-                os.getenv("LOGGING_FILENAME", f"{socket.gethostname()}.log"),
-            ),
+        "loggers": {
+            __package__: {
+                "handlers": ["console", "file"],
+                "level": os.getenv("LOGGING_LEVEL", "DEBUG"),
+                "propagate": False,
+            },
+            "__main__": {
+                "handlers": ["console", "file"],
+                "level": os.getenv("LOGGING_LEVEL", "DEBUG"),
+                "propagate": False,
+            },
+            "rcon.rcon": {
+                "level": os.getenv(
+                    "COMMANDS_LOGLEVEL", os.getenv("LOGGING_LEVEL", "INFO")
+                ),
+            },
+            "rcon.commands": {
+                "level": os.getenv(
+                    "COMMANDS_LOGLEVEL", os.getenv("LOGGING_LEVEL", "INFO")
+                ),
+            },
+            # TODO fix that
+            "rcon.automods.automod": {
+                "handlers": ["console", "file"],
+                "level": os.getenv("LOGGING_LEVEL", "DEBUG"),
+                "propagate": False,
+            },
         },
-    },
-    "loggers": {
-        __package__: {
-            "handlers": ["console", "file"],
-            "level": os.getenv("LOGGING_LEVEL", "DEBUG"),
-            "propagate": False,
-        },
-        "__main__": {
-            "handlers": ["console", "file"],
-            "level": os.getenv("LOGGING_LEVEL", "DEBUG"),
-            "propagate": False,
-        },
-        "rcon.rcon": {
-            "level": os.getenv("COMMANDS_LOGLEVEL", os.getenv("LOGGING_LEVEL", "INFO")),
-        },
-        "rcon.commands": {
-            "level": os.getenv("COMMANDS_LOGLEVEL", os.getenv("LOGGING_LEVEL", "INFO")),
-        },
-        # TODO fix that
-        "rcon.automods.automod": {
-            "handlers": ["console", "file"],
-            "level": os.getenv("LOGGING_LEVEL", "DEBUG"),
-            "propagate": False,
-        },
-    },
-}
+    }
+
+
+LOGGING = build_logging_config()
 
 dictConfig(LOGGING)
