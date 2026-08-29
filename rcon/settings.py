@@ -18,6 +18,7 @@ except Exception:  # noqa
     TAG_VERSION = "unknown"
 
 _ENVIRONMENT: str | None = None
+_RESOLVING_ENVIRONMENT = False
 
 
 def _get_environment() -> str:
@@ -27,15 +28,26 @@ def _get_environment() -> str:
     # load_from_db() here meant each of them paid a live Postgres round
     # trip (and opened a DB connection/engine) before doing anything else,
     # just to compute a cosmetic log-line prefix.
-    global _ENVIRONMENT
-    if _ENVIRONMENT is None:
-        try:
-            config = RconServerSettingsUserConfig.load_from_db()
-            _ENVIRONMENT = re.sub(
-                "[^0-9a-zA-Z]+", "", (config.short_name or "default").strip()
-            )[:64]
-        except Exception:  # noqa
-            _ENVIRONMENT = "undefined"
+    global _ENVIRONMENT, _RESOLVING_ENVIRONMENT
+    if _ENVIRONMENT is not None:
+        return _ENVIRONMENT
+    if _RESOLVING_ENVIRONMENT:
+        # Reentrant call: load_from_db() below logs through
+        # rcon.user_config.utils's logger, which propagates up to this
+        # package's own handlers (both carry this same filter), re-entering
+        # this function while _ENVIRONMENT is still unset. Without this
+        # guard that recurses once per log line load_from_db() emits.
+        return "resolving"
+    _RESOLVING_ENVIRONMENT = True
+    try:
+        config = RconServerSettingsUserConfig.load_from_db()
+        _ENVIRONMENT = re.sub(
+            "[^0-9a-zA-Z]+", "", (config.short_name or "default").strip()
+        )[:64]
+    except Exception:  # noqa
+        _ENVIRONMENT = "undefined"
+    finally:
+        _RESOLVING_ENVIRONMENT = False
     return _ENVIRONMENT
 
 
