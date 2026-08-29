@@ -48,6 +48,11 @@ extend-exclude = [
 
 [tool.uv.sources]
 discord-webhook = { git = "https://github.com/cemathey/python-discord-webhook", rev = "89ae25140b30a6747de70e5bf16bc5ba04a9b238" }
+# Fork of https://github.com/timraay/hllrcon: lazily imports hllrcon.data
+# submodules to avoid eagerly loading ~32k lines of generated game data on
+# every process start. Not yet proposed upstream; switch back to the
+# PyPI release once/if it merges.
+hllrcon = { git = "https://github.com/cemathey/hllrcon", rev = "f993eb5" }
 
 [dependency-groups]
 dev = [
