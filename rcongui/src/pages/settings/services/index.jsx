@@ -44,6 +44,8 @@ const stateColor = {
   STOPPED: "default",
   FATAL: "error",
   EXITED: "info",
+  STARTING: "warning",
+  BACKOFF: "warning",
 };
 
 const isRunning = (service) => service.statename === "RUNNING";
@@ -126,6 +128,24 @@ const Services = () => {
                   hidden
                   readOnly
                 />
+                <input
+                  name={"source"}
+                  value={service.source}
+                  hidden
+                  readOnly
+                />
+                {isRunning(service) && (
+                  <Button
+                    type="submit"
+                    variant="outlined"
+                    color="secondary"
+                    name={"action"}
+                    value={"restart"}
+                    sx={{ mr: 1 }}
+                  >
+                    Restart service
+                  </Button>
+                )}
                 <Button
                   type="submit"
                   variant="contained"
