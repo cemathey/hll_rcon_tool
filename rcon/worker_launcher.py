@@ -61,7 +61,14 @@ class ChildSpec:
 class ChildState:
     spec: ChildSpec
     pid: int | None = None
+    # Monotonic clock, only ever used for computing durations (ran_secs,
+    # startsecs comparisons) - immune to wall-clock adjustments.
+    start_monotonic: float | None = None
+    # Wall-clock epoch seconds, only for RPC display (matches supervisord's
+    # own start/stop/now fields, which the existing services-page frontend
+    # already expects to feed to dayjs).
     start_time: float | None = None
+    stop_time: float | None = None
     restart_count: int = 0
     enabled: bool = True
     last_exit_code: int | None = None
@@ -331,7 +338,8 @@ class Launcher:
             with self._lock:
                 state = self._children[name]
                 state.pid = pid
-                state.start_time = time.monotonic()
+                state.start_monotonic = time.monotonic()
+                state.start_time = time.time()
                 state.last_exit_code = None
                 state.fatal = False
                 self._pid_to_name[pid] = name
@@ -344,12 +352,15 @@ class Launcher:
         state = self._children[name]
         spec = state.spec
         ran_secs = (
-            time.monotonic() - state.start_time if state.start_time else 0
+            time.monotonic() - state.start_monotonic
+            if state.start_monotonic
+            else 0
         )
         exited_cleanly = os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
 
         with self._lock:
             state.pid = None
+            state.stop_time = time.time()
             state.last_exit_code = (
                 os.WEXITSTATUS(status) if os.WIFEXITED(status) else -status
             )
@@ -467,6 +478,7 @@ class Launcher:
     # -- RPC control surface, backing the CRCON services page -----------
 
     def get_all_child_info(self) -> list[dict]:
+        now = time.time()
         with self._lock:
             infos = []
             for name, state in self._children.items():
@@ -478,7 +490,8 @@ class Launcher:
                         "statename": state.statename(),
                         "pid": state.pid or 0,
                         "start": state.start_time or 0,
-                        "stop": 0,
+                        "stop": state.stop_time or 0,
+                        "now": now,
                         "spawnerr": "",
                         "exitstatus": state.last_exit_code or 0,
                     }
