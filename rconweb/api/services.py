@@ -15,6 +15,7 @@ from .utils import _get_data
 logger = getLogger(__name__)
 
 supervisor_client = None
+worker_launcher_client = None
 
 
 def get_supervisor_client():
@@ -29,33 +30,71 @@ def get_supervisor_client():
     return supervisor_client
 
 
+def get_worker_launcher_client():
+    global worker_launcher_client
+
+    if not worker_launcher_client:
+        url = os.getenv("WORKER_LAUNCHER_RPC_URL")
+        if not url:
+            raise ValueError(
+                "Can't reach worker_launcher, WORKER_LAUNCHER_RPC_URL isn't set"
+            )
+        worker_launcher_client = ServerProxy(url)
+
+    return worker_launcher_client
+
+
 @csrf_exempt
 @login_required()
 @permission_required("api.can_view_available_services", raise_exception=True)
 @require_http_methods(["GET"])
 def get_services(request):
     info = {
-        "broadcasts": "The automatic broadcasts.",
-        "log_event_loop": "Blacklist enforcement, chat/kill forwarding, player history, etc...",
-        "log_stream": "Optionally store game server logs in a redis stream",
-        "auto_settings": "Applies commands automaticaly based on your rules.",
         "cron": "The scheduler, cleans logs and whatever you added.",
     }
     client = get_supervisor_client()
 
     try:
         processes = client.supervisor.getAllProcessInfo()
-        result = [dict(info=info.get(p["name"], ""), **p) for p in processes]
+        result = [
+            dict(info=info.get(p["name"], ""), source="supervisord", **p)
+            for p in processes
+        ]
     except:  # noqa
         if os.getenv("DJANGO_DEBUG"):
             result = []
         else:
             raise
+
+    try:
+        launcher_client = get_worker_launcher_client()
+        children = launcher_client.getAllChildInfo()
+        result += [
+            dict(info=c.get("description", ""), source="worker_launcher", **c)
+            for c in children
+        ]
+    except:  # noqa
+        # worker_launcher's control server isn't reachable (e.g. it hasn't
+        # started yet, or this deployment predates it) - degrade to
+        # showing only the real supervisord-managed programs rather than
+        # failing the whole page.
+        logger.exception("Could not reach worker_launcher RPC server")
+
     return api_response(
         result=result,
         command="get_services",
         failed=False,
     )
+
+
+def _supervisor_restart(client, service_name):
+    # supervisord's RPC has no native restart call - stop then start,
+    # matching what supervisorctl's own "restart" command does internally.
+    try:
+        client.supervisor.stopProcess(service_name)
+    except Fault:
+        pass  # already stopped - fine, we're about to start it anyway
+    return client.supervisor.startProcess(service_name)
 
 
 @csrf_exempt
@@ -66,18 +105,32 @@ def get_services(request):
 @require_content_type()
 def do_service(request):
     data = _get_data(request)
-    client = get_supervisor_client()
     error = None
     res = None
     command_name = "do_service"
     failed = False
 
-    actions = {
-        "START": client.supervisor.startProcess,
-        "STOP": client.supervisor.stopProcess,
-    }
     action = data.get("action")
     service_name = data.get("service_name")
+    # Defaults to supervisord for any client that predates this field -
+    # every row the current frontend renders echoes back the source it
+    # was given by get_services.
+    source = data.get("source", "supervisord")
+
+    if source == "worker_launcher":
+        client = get_worker_launcher_client()
+        actions = {
+            "START": client.startChild,
+            "STOP": client.stopChild,
+            "RESTART": client.restartChild,
+        }
+    else:
+        client = get_supervisor_client()
+        actions = {
+            "START": client.supervisor.startProcess,
+            "STOP": client.supervisor.stopProcess,
+            "RESTART": lambda name: _supervisor_restart(client, name),
+        }
 
     if not action or action.upper() not in actions:
         failed = True
@@ -85,7 +138,7 @@ def do_service(request):
             command=command_name,
             arguments=data,
             failed=failed,
-            error="action must be START or STOP",
+            error="action must be START, STOP, or RESTART",
             status_code=400,
         )
     if not service_name:

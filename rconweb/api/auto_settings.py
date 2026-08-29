@@ -9,7 +9,7 @@ from .audit_log import record_audit
 from .auth import api_response, login_required
 from .decorators import permission_required, require_content_type, require_http_methods
 from .multi_servers import forward_request
-from .services import get_supervisor_client
+from .services import get_worker_launcher_client
 from .utils import _get_data
 from .views import audit
 
@@ -109,11 +109,14 @@ def set_auto_settings(request):
         return api_response(error=str(e), command=command_name)
 
     if do_restart_service:
-        client = get_supervisor_client()
-        process = client.supervisor.getProcessInfo("auto_settings")
-        if process["state"] == 20:  # The process is running
-            client.supervisor.stopProcess("auto_settings")
-            client.supervisor.startProcess("auto_settings")
+        # auto_settings runs as a forked child of worker_launcher, not its
+        # own supervisord program (see rcon/worker_launcher.py) - restart
+        # it through the launcher's own control server instead.
+        client = get_worker_launcher_client()
+        children = {c["name"]: c for c in client.getAllChildInfo()}
+        process = children.get("auto_settings")
+        if process and process["statename"] == "RUNNING":
+            client.restartChild("auto_settings")
 
     if do_forward:
         forward_request(request)
