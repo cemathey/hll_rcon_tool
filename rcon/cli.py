@@ -191,6 +191,13 @@ def run_log_recorder(interval, frequency_min, now):
     LogRecorder(interval).run(run_immediately=now)
 
 
+@cli.command(name="worker_launcher")
+def run_worker_launcher():
+    from rcon.worker_launcher import Launcher, build_default_child_specs
+
+    Launcher(build_default_child_specs()).run()
+
+
 def init(force=False):
     install_unaccent()
 
