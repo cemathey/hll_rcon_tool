@@ -60,6 +60,11 @@ def _restart_on_rcon_error(run_fn: Callable[[], None], name: str) -> None:
     without changing behavior for any other kind of bug (those still
     propagate and crash normally, correctly surfacing real issues).
 
+    log_stream and watch_killrate were found to have the exact same
+    unprotected-RCON-call shape during a later robustness review (see
+    their call sites below) and were wrapped with this same helper as a
+    preventative fix, without a confirmed live incident behind them.
+
     run_fn returning on its own (e.g. seed_vip noticing it's disabled) is
     treated as an intentional exit, not a crash — no retry."""
     while True:
@@ -125,7 +130,12 @@ def run_log_stream():
         stream = LogStream()
         stream.clear()
         if config.enabled:
-            stream.run()
+            # LogStream.run() fetches logs from RCON both before and inside
+            # its loop with no error handling of its own - an RCON hiccup
+            # (e.g. the server restarting for a map change) previously
+            # killed this process outright, same class of bug
+            # _restart_on_rcon_error was written for below.
+            _restart_on_rcon_error(stream.run, "log_stream")
     except:  # noqa
         logger.exception("Log stream stopped")
         sys.exit(1)
@@ -163,7 +173,10 @@ def run_seed_vip():
 @cli.command(name="watch_killrate")
 def watch_killrate():
     try:
-        rcon.watch_killrate.run()
+        # rcon.watch_killrate.run()'s loop has no error handling of its own
+        # around its RCON-touching call - same class of bug
+        # _restart_on_rcon_error was written for below.
+        _restart_on_rcon_error(rcon.watch_killrate.run, "watch_killrate")
     except:  # noqa
         logger.exception("Watch_KillRate stopped")
         sys.exit(1)
