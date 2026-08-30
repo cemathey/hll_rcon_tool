@@ -96,126 +96,188 @@ def build_default_child_specs() -> list[ChildSpec]:
     import rcon.cli as cli
 
     n = os.getenv("SERVER_NUMBER", "")
-    return [
-        ChildSpec(
+
+    # Each entry is (name, zero-arg factory) rather than a plain ChildSpec:
+    # a factory defers the `cli.foo.callback` attribute lookup until it's
+    # actually called below, inside a try/except. If upstream ever renames
+    # or removes one of these commands and this list isn't updated to
+    # match, we want *that one program* to be logged and skipped - not an
+    # AttributeError here taking down all 12 before any of them get a
+    # chance to fork, which is what a plain list of ChildSpec(...) would do
+    # (the attribute lookup happens while building the list itself, before
+    # this function can return anything).
+    entries: list[tuple[str, Callable[[], ChildSpec]]] = [
+        (
             "broadcasts",
-            cli.run_broadcast_loop.callback,
-            {"LOGGING_FILENAME": f"broadcasts_{n}.log"},
-            startretries=100,
-            startsecs=1,
-            autorestart="always",
-            description="Broadcasts server messages",
-        ),
-        ChildSpec(
-            "expiring_vips",
-            cli.run_expiring_vips.callback,
-            {"LOGGING_FILENAME": f"expiring_vips_{n}.log"},
-            startretries=10,
-            startsecs=0,
-            autorestart="always",
-        ),
-        ChildSpec(
-            "seed_vip",
-            cli.run_seed_vip.callback,
-            {"LOGGING_FILENAME": f"seed_vip_{n}.log"},
-            startretries=5,
-            startsecs=1,
-            autorestart="unexpected",
-        ),
-        ChildSpec(
-            "log_event_loop",
-            cli.run_log_loop.callback,
-            {
-                "LOGGING_FILENAME": f"log_event_loop_{n}.log",
-                "HLL_DB_DISABLE_CONNECTION_POOL": "1",
-            },
-            startretries=1_000_000,
-            startsecs=1,
-            autorestart="always",
-        ),
-        ChildSpec(
-            "log_stream",
-            cli.run_log_stream.callback,
-            {
-                "LOGGING_FILENAME": f"log_stream_{n}.log",
-                "HLL_DB_DISABLE_CONNECTION_POOL": "1",
-            },
-            startretries=5,
-            startsecs=0,
-            autorestart="unexpected",
-        ),
-        ChildSpec(
-            "log_recorder",
-            functools.partial(
-                cli.run_log_recorder.callback,
-                interval=10,
-                frequency_min=None,
-                now=False,
+            lambda: ChildSpec(
+                "broadcasts",
+                cli.run_broadcast_loop.callback,
+                {"LOGGING_FILENAME": f"broadcasts_{n}.log"},
+                startretries=100,
+                startsecs=1,
+                autorestart="always",
+                description="Broadcasts server messages",
             ),
-            {"LOGGING_FILENAME": f"log_recorder_{n}.log"},
-            startretries=1_000_000,
-            startsecs=1,
-            autorestart="always",
         ),
-        ChildSpec(
+        (
+            "expiring_vips",
+            lambda: ChildSpec(
+                "expiring_vips",
+                cli.run_expiring_vips.callback,
+                {"LOGGING_FILENAME": f"expiring_vips_{n}.log"},
+                startretries=10,
+                startsecs=0,
+                autorestart="always",
+            ),
+        ),
+        (
+            "seed_vip",
+            lambda: ChildSpec(
+                "seed_vip",
+                cli.run_seed_vip.callback,
+                {"LOGGING_FILENAME": f"seed_vip_{n}.log"},
+                startretries=5,
+                startsecs=1,
+                autorestart="unexpected",
+            ),
+        ),
+        (
+            "log_event_loop",
+            lambda: ChildSpec(
+                "log_event_loop",
+                cli.run_log_loop.callback,
+                {
+                    "LOGGING_FILENAME": f"log_event_loop_{n}.log",
+                    "HLL_DB_DISABLE_CONNECTION_POOL": "1",
+                },
+                startretries=1_000_000,
+                startsecs=1,
+                autorestart="always",
+            ),
+        ),
+        (
+            "log_stream",
+            lambda: ChildSpec(
+                "log_stream",
+                cli.run_log_stream.callback,
+                {
+                    "LOGGING_FILENAME": f"log_stream_{n}.log",
+                    "HLL_DB_DISABLE_CONNECTION_POOL": "1",
+                },
+                startretries=5,
+                startsecs=0,
+                autorestart="unexpected",
+            ),
+        ),
+        (
+            "log_recorder",
+            lambda: ChildSpec(
+                "log_recorder",
+                functools.partial(
+                    cli.run_log_recorder.callback,
+                    interval=10,
+                    frequency_min=None,
+                    now=False,
+                ),
+                {"LOGGING_FILENAME": f"log_recorder_{n}.log"},
+                startretries=1_000_000,
+                startsecs=1,
+                autorestart="always",
+            ),
+        ),
+        (
             "auto_settings",
-            cli.auto_settings_loop.callback,
-            {
-                "LOGGING_FILENAME": f"auto_settings_{n}.log",
-                "HLL_DB_DISABLE_CONNECTION_POOL": "1",
-            },
-            startretries=100,
-            startsecs=1,
-            autorestart="always",
+            lambda: ChildSpec(
+                "auto_settings",
+                cli.auto_settings_loop.callback,
+                {
+                    "LOGGING_FILENAME": f"auto_settings_{n}.log",
+                    "HLL_DB_DISABLE_CONNECTION_POOL": "1",
+                },
+                startretries=100,
+                startsecs=1,
+                autorestart="always",
+            ),
         ),
-        ChildSpec(
+        (
             "routines",
-            cli.run_routines.callback,
-            {"LOGGING_FILENAME": f"routines_{n}.log"},
-            startretries=100,
-            startsecs=1,
-            autorestart="always",
+            lambda: ChildSpec(
+                "routines",
+                cli.run_routines.callback,
+                {"LOGGING_FILENAME": f"routines_{n}.log"},
+                startretries=100,
+                startsecs=1,
+                autorestart="always",
+            ),
         ),
-        ChildSpec(
+        (
             "live_stats_refresh",
-            cli.run_stats_loop.callback,
-            {
-                "LOGGING_FILENAME": f"live_stats_loop_{n}.log",
-                "HLL_DB_DISABLE_CONNECTION_POOL": "1",
-            },
-            startretries=100,
-            startsecs=1,
-            autorestart="always",
+            lambda: ChildSpec(
+                "live_stats_refresh",
+                cli.run_stats_loop.callback,
+                {
+                    "LOGGING_FILENAME": f"live_stats_loop_{n}.log",
+                    "HLL_DB_DISABLE_CONNECTION_POOL": "1",
+                },
+                startretries=100,
+                startsecs=1,
+                autorestart="always",
+            ),
         ),
-        ChildSpec(
+        (
             "automod",
-            cli.run_automod.callback,
-            {
-                "LOGGING_FILENAME": f"automod_{n}.log",
-                "COMMANDS_LOGLEVEL": "CRITICAL",
-                "LOGGING_LEVEL": "INFO",
-            },
-            startretries=100,
-            startsecs=10,
-            autorestart="always",
+            lambda: ChildSpec(
+                "automod",
+                cli.run_automod.callback,
+                {
+                    "LOGGING_FILENAME": f"automod_{n}.log",
+                    "COMMANDS_LOGLEVEL": "CRITICAL",
+                    "LOGGING_LEVEL": "INFO",
+                },
+                startretries=100,
+                startsecs=10,
+                autorestart="always",
+            ),
         ),
-        ChildSpec(
+        (
             "blacklists",
-            cli.run_blacklists.callback,
-            {"LOGGING_FILENAME": f"blacklists_{n}.log"},
-            startretries=100,
-            startsecs=10,
-            autorestart="always",
+            lambda: ChildSpec(
+                "blacklists",
+                cli.run_blacklists.callback,
+                {"LOGGING_FILENAME": f"blacklists_{n}.log"},
+                startretries=100,
+                startsecs=10,
+                autorestart="always",
+            ),
         ),
-        ChildSpec(
+        (
             "watch_killrate",
-            cli.watch_killrate.callback,
-            {"LOGGING_FILENAME": f"watch_killrate_{n}.log"},
-            startretries=5,
-            startsecs=0,
-            autorestart="unexpected",
+            lambda: ChildSpec(
+                "watch_killrate",
+                cli.watch_killrate.callback,
+                {"LOGGING_FILENAME": f"watch_killrate_{n}.log"},
+                startretries=5,
+                startsecs=0,
+                autorestart="unexpected",
+            ),
         ),
     ]
+
+    specs = []
+    for name, build in entries:
+        try:
+            specs.append(build())
+        except AttributeError:
+            logger.error(
+                "worker_launcher: %r is no longer available in rcon.cli "
+                "(likely renamed/removed upstream without updating "
+                "build_default_child_specs() to match) - skipping it, "
+                "the other %d programs are unaffected",
+                name,
+                len(entries) - 1,
+                exc_info=True,
+            )
+    return specs
 
 
 def _reset_after_fork() -> None:
