@@ -377,7 +377,44 @@ class Launcher:
 
     def _spawn(self, name: str) -> None:
         spec = self._specs[name]
-        pid = os.fork()
+        try:
+            pid = os.fork()
+        except OSError:
+            # Most likely resource exhaustion (memory, PID/process limits,
+            # etc.) - letting this propagate would kill the whole launcher,
+            # orphaning every already-running child (they'd keep running,
+            # unsupervised, while supervisord starts a *second* launcher
+            # that forks a *second* full set of 12 - duplicate broadcasts/
+            # automod/etc. against the same live game server). Handling it
+            # here, in the one function every spawn path (initial startup,
+            # the backoff timer, and RPC start/restart) already funnels
+            # through, means a transient resource crunch degrades to "this
+            # one program backs off and retries" instead.
+            logger.exception(
+                "worker_launcher: os.fork() failed spawning %s - retrying "
+                "in %ss",
+                name,
+                _BACKOFF_SECS,
+            )
+            with self._lock:
+                state = self._children[name]
+                state.restart_count += 1
+                give_up = state.restart_count > spec.startretries
+                if give_up:
+                    state.fatal = True
+            if give_up:
+                logger.critical(
+                    "worker %s: os.fork() kept failing past startretries "
+                    "(%s), giving up",
+                    name,
+                    spec.startretries,
+                )
+                self._save_state()
+                return
+            timer = threading.Timer(_BACKOFF_SECS, self._spawn, args=(name,))
+            timer.daemon = True
+            timer.start()
+            return
         if pid == 0:
             # Child branch. Must never fall through to normal interpreter
             # shutdown (atexit hooks / buffer flushes would then run in
@@ -469,11 +506,6 @@ class Launcher:
     def run(self) -> None:
         os.register_at_fork(after_in_child=_reset_after_fork)
 
-        self._load_state()
-        for name, state in self._children.items():
-            if state.enabled:
-                self._spawn(name)
-
         rpc_thread = threading.Thread(
             target=self._serve_rpc, daemon=True, name="worker-launcher-rpc"
         )
@@ -493,7 +525,21 @@ class Launcher:
         signal.signal(signal.SIGTERM, _handle_signal)
         signal.signal(signal.SIGINT, _handle_signal)
 
+        # Everything from here down - including the initial spawn loop -
+        # is inside one umbrella: whatever goes wrong (a failed fork(), a
+        # bug in _handle_child_exit, anything), we must still try to
+        # SIGTERM every child we've already forked before this process
+        # exits. Without this, an uncaught exception here orphans whatever
+        # was already running while supervisord starts a *second* launcher
+        # that forks a *second* full set of children - duplicate
+        # broadcasts/automod/etc. against the same live game server, not
+        # just a crash.
         try:
+            self._load_state()
+            for name, state in self._children.items():
+                if state.enabled:
+                    self._spawn(name)
+
             while True:
                 pid, status = os.waitpid(-1, 0)
                 self._handle_child_exit(pid, status)
@@ -502,8 +548,15 @@ class Launcher:
         except ChildProcessError:
             # No children left to wait on (e.g. all disabled at startup).
             self._graceful_shutdown()
+        except BaseException:
+            logger.critical(
+                "worker_launcher: unexpected error, stopping all children "
+                "before exiting",
+                exc_info=True,
+            )
+            self._graceful_shutdown(unexpected=True)
 
-    def _graceful_shutdown(self) -> None:
+    def _graceful_shutdown(self, unexpected: bool = False) -> None:
         logger.info("worker_launcher shutting down, stopping all children")
         with self._lock:
             live_pids = list(self._pid_to_name)
@@ -535,7 +588,11 @@ class Launcher:
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-        sys.exit(0)
+        # Non-zero on an unexpected error (rather than a real SIGTERM/
+        # SIGINT) so anything watching exit codes for alerting can tell the
+        # difference - supervisord's own autorestart=true here doesn't
+        # care either way, but this shouldn't look like a clean exit.
+        sys.exit(1 if unexpected else 0)
 
     # -- RPC control surface, backing the CRCON services page -----------
 
@@ -611,11 +668,30 @@ class Launcher:
         return True
 
     def _serve_rpc(self) -> None:
-        server = SimpleXMLRPCServer(
-            ("0.0.0.0", _RPC_PORT), logRequests=False, allow_none=True
-        )
-        server.register_function(self.get_all_child_info, "getAllChildInfo")
-        server.register_function(self.start_child, "startChild")
-        server.register_function(self.stop_child, "stopChild")
-        server.register_function(self.restart_child, "restartChild")
-        server.serve_forever()
+        # Runs in a daemon thread, so an uncaught exception here wouldn't
+        # take down the launcher's main loop or any of its children (the
+        # 12 game-critical loops are unaffected either way) - but without
+        # this retry loop, a transient failure (e.g. the port still in
+        # TIME_WAIT from a fast launcher restart) would permanently kill
+        # the services page's visibility/control over all 12 children for
+        # this launcher's entire lifetime, with nothing but a stderr
+        # traceback to show for it.
+        while True:
+            try:
+                server = SimpleXMLRPCServer(
+                    ("0.0.0.0", _RPC_PORT), logRequests=False, allow_none=True
+                )
+                server.register_function(
+                    self.get_all_child_info, "getAllChildInfo"
+                )
+                server.register_function(self.start_child, "startChild")
+                server.register_function(self.stop_child, "stopChild")
+                server.register_function(self.restart_child, "restartChild")
+                server.serve_forever()
+            except Exception:
+                logger.exception(
+                    "worker_launcher: RPC control server failed, "
+                    "retrying in %ss",
+                    _BACKOFF_SECS,
+                )
+                time.sleep(_BACKOFF_SECS)
