@@ -55,9 +55,29 @@ MESSAGE_KEYS = (
 )
 SERVER_NUMBER = int(get_server_number())
 
+ENGINE: Engine | None = None
+
 
 class Base(DeclarativeBase):
     pass
+
+
+def _init_engine() -> None:
+    # Split out of the old `if __name__ == "__main__":` block so `run()` is
+    # a plain importable callable rcon.worker_launcher can fork straight
+    # into, instead of requiring this module to be executed as a script.
+    global ENGINE
+    if ENGINE is not None:
+        return
+    volume_path = pathlib.Path("/scoreboard_db")
+    if not volume_path.exists():
+        logger.fatal(
+            "Your scoreboard volume is not configured correctly in your compose.yaml file."
+        )
+        sys.exit(-1)
+    db_path = volume_path / pathlib.Path("./scoreboard.db")
+    ENGINE = create_engine(f"sqlite:///file:{db_path}?mode=rwc&uri=true", echo=False)
+    Base.metadata.create_all(ENGINE)
 
 
 @contextmanager
@@ -456,6 +476,8 @@ def send_message(
 
 
 def run():
+    _init_engine()
+
     # Avoid circular imports
     from rcon.api_commands import get_rcon_api
 
@@ -570,22 +592,8 @@ def run():
 
 
 if __name__ == "__main__":
-    VOLUME_PATH = pathlib.Path("/scoreboard_db")
-
-    if not VOLUME_PATH.exists():
-        logger.fatal(
-            "Your scoreboard volume is not configured correctly in your compose.yaml file."
-        )
-        sys.exit(-1)
-
-    DB_PATH = pathlib.Path("/scoreboard_db") / pathlib.Path("./scoreboard.db")
-    ENGINE: Engine = create_engine(
-        f"sqlite:///file:{DB_PATH}?mode=rwc&uri=true", echo=False
-    )
-
     try:
         logger.info("Attempting to start scoreboard")
-        Base.metadata.create_all(ENGINE)
         run()
     except Exception:
         logger.exception("scoreboard failed unexpectedly")

@@ -9,7 +9,7 @@ identical, shared machinery.
 This launcher imports rcon.cli exactly once, then os.fork()s a child per
 logical program instead, so that import cost becomes copy-on-write shared
 memory instead of duplicated N times. supervisord manages this one process
-instead of the ~12 it used to.
+instead of the ~13 it used to.
 
 See config/supervisord.conf ([program:worker_launcher]) for how this is
 invoked, and rcon/cli.py's `worker_launcher` command for the entrypoint.
@@ -56,7 +56,7 @@ def _set_parent_death_signal(parent_pid_at_fork: int) -> None:
     live that without this, a child simply survives as an orphan when its
     launcher parent is SIGKILLed. That matters a lot here specifically:
     supervisord's autorestart=true then starts a *second* launcher, which
-    forks a *second* full set of all 12 children, so the orphaned
+    forks a *second* full set of all 13 children, so the orphaned
     survivors end up running duplicated against the same live game server
     (duplicate broadcasts, automod double-firing, etc.) until someone
     notices and manually cleans it up - not just "one thing crashed."
@@ -136,6 +136,7 @@ def build_default_child_specs() -> list[ChildSpec]:
     # itself (e.g. for the RPC/status dataclasses) doesn't pull in all of
     # rcon.cli as a side effect.
     import rcon.cli as cli
+    import rcon.scoreboard as scoreboard
 
     n = os.getenv("SERVER_NUMBER", "")
 
@@ -144,7 +145,7 @@ def build_default_child_specs() -> list[ChildSpec]:
     # actually called below, inside a try/except. If upstream ever renames
     # or removes one of these commands and this list isn't updated to
     # match, we want *that one program* to be logged and skipped - not an
-    # AttributeError here taking down all 12 before any of them get a
+    # AttributeError here taking down all 13 before any of them get a
     # chance to fork, which is what a plain list of ChildSpec(...) would do
     # (the attribute lookup happens while building the list itself, before
     # this function can return anything).
@@ -303,6 +304,20 @@ def build_default_child_specs() -> list[ChildSpec]:
                 autorestart="unexpected",
             ),
         ),
+        (
+            "scoreboard",
+            lambda: ChildSpec(
+                "scoreboard",
+                scoreboard.run,
+                # No underscore, matching the original
+                # LOGGING_FILENAME=scoreboard%(ENV_SERVER_NUMBER)s.log
+                {"LOGGING_FILENAME": f"scoreboard{n}.log"},
+                startretries=5,
+                startsecs=10,
+                autorestart="unexpected",
+                description="Posts scoreboard embeds to Discord webhooks",
+            ),
+        ),
     ]
 
     specs = []
@@ -452,7 +467,7 @@ class Launcher:
             # etc.) - letting this propagate would kill the whole launcher,
             # orphaning every already-running child (they'd keep running,
             # unsupervised, while supervisord starts a *second* launcher
-            # that forks a *second* full set of 12 - duplicate broadcasts/
+            # that forks a *second* full set of 13 - duplicate broadcasts/
             # automod/etc. against the same live game server). Handling it
             # here, in the one function every spawn path (initial startup,
             # the backoff timer, and RPC start/restart) already funnels
@@ -739,10 +754,10 @@ class Launcher:
     def _serve_rpc(self) -> None:
         # Runs in a daemon thread, so an uncaught exception here wouldn't
         # take down the launcher's main loop or any of its children (the
-        # 12 game-critical loops are unaffected either way) - but without
+        # 13 game-critical loops are unaffected either way) - but without
         # this retry loop, a transient failure (e.g. the port still in
         # TIME_WAIT from a fast launcher restart) would permanently kill
-        # the services page's visibility/control over all 12 children for
+        # the services page's visibility/control over all 13 children for
         # this launcher's entire lifetime, with nothing but a stderr
         # traceback to show for it.
         while True:
