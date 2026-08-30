@@ -15,6 +15,7 @@ See config/supervisord.conf ([program:worker_launcher]) for how this is
 invoked, and rcon/cli.py's `worker_launcher` command for the entrypoint.
 """
 
+import ctypes
 import functools
 import json
 import logging
@@ -44,6 +45,47 @@ _GRACE_PERIOD_SECS = 10
 # well below supervisord's default so genuinely transient issues (a
 # game server restart, a brief DB blip) still recover quickly.
 _BACKOFF_SECS = 5
+
+_PR_SET_PDEATHSIG = 1
+
+
+def _set_parent_death_signal(parent_pid_at_fork: int) -> None:
+    """Linux-only: ask the kernel to deliver SIGTERM to this process if its
+    parent (the launcher) dies for ANY reason - a crash, an OOM-killer
+    SIGKILL, `docker kill` targeting just that PID, anything. Confirmed
+    live that without this, a child simply survives as an orphan when its
+    launcher parent is SIGKILLed. That matters a lot here specifically:
+    supervisord's autorestart=true then starts a *second* launcher, which
+    forks a *second* full set of all 12 children, so the orphaned
+    survivors end up running duplicated against the same live game server
+    (duplicate broadcasts, automod double-firing, etc.) until someone
+    notices and manually cleans it up - not just "one thing crashed."
+
+    The realistic trigger here isn't hypothetical: the OOM killer's victim
+    heuristic is RSS-based, and per-process RSS accounting attributes
+    shared copy-on-write pages to *every* process that maps them - so
+    under real memory pressure, the launcher parent (and each child) can
+    look like one of the larger individual processes in this container,
+    exactly because of how this feature shares memory.
+    """
+    try:
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        if libc.prctl(_PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "worker_launcher: could not set PR_SET_PDEATHSIG - if the "
+            "launcher dies unexpectedly, this child could be orphaned "
+            "instead of exiting with it"
+        )
+        return
+    if os.getppid() != parent_pid_at_fork:
+        # Closes a narrow race: the parent died in the gap between fork()
+        # returning here and the prctl() call actually taking effect.
+        # PDEATHSIG isn't delivered retroactively for a parent that was
+        # already gone before the association was made, so we have to
+        # check for it ourselves.
+        os._exit(1)
 
 
 @dataclass
@@ -296,23 +338,48 @@ def _reset_after_fork() -> None:
     child stuck with whichever pool class the launcher's own env happened
     to have, silently losing the per-program NullPool/QueuePool
     differentiation that exists today.
+
+    CPython catches any exception raised by an after_in_child hook itself
+    (prints "Exception ignored in: ..." straight to stderr, verified
+    live) rather than letting it propagate out of os.fork() - so a bug in
+    here can't crash the child or corrupt the parent's control flow. But
+    that also means a failure here is otherwise invisible: it bypasses
+    our own logging entirely (nothing lands in this child's actual log
+    file, only in raw stderr) and, if it happened inside one big
+    try-less block, a failure resetting the redis pools would prevent
+    the SQLAlchemy engine reset from even being attempted. Each cleanup
+    step below is therefore independent and self-logging.
     """
-    import rcon.models as models
+    try:
+        import rcon.models as models
 
-    old_engine = models._ENGINE
-    models._ENGINE = None
-    if old_engine is not None:
-        old_engine.dispose(close=False)
+        old_engine = models._ENGINE
+        models._ENGINE = None
+        if old_engine is not None:
+            old_engine.dispose(close=False)
+    except Exception:
+        logger.exception(
+            "worker_launcher: failed to reset the inherited SQLAlchemy "
+            "engine after fork - this child may share a DB connection "
+            "with its parent/siblings"
+        )
 
-    # redis-py (8.1.0) already self-heals across fork: ConnectionPool
-    # checks pid on every get_connection() and resets itself if it
-    # changed. This is kept anyway as cheap, explicit defense-in-depth
-    # rather than relying on that undocumented-to-us internal behavior.
-    import rcon.cache_utils as cache_utils
+    try:
+        # redis-py (8.1.0) already self-heals across fork: ConnectionPool
+        # checks pid on every get_connection() and resets itself if it
+        # changed. This is kept anyway as cheap, explicit defense-in-depth
+        # rather than relying on that undocumented-to-us internal
+        # behavior.
+        import rcon.cache_utils as cache_utils
 
-    for pool in (cache_utils._REDIS_POOL, cache_utils._GLOBAL_REDIS_POOL):
-        if pool is not None:
-            pool.reset()
+        for pool in (cache_utils._REDIS_POOL, cache_utils._GLOBAL_REDIS_POOL):
+            if pool is not None:
+                pool.reset()
+    except Exception:
+        logger.exception(
+            "worker_launcher: failed to reset the inherited redis "
+            "connection pool(s) after fork"
+        )
 
 
 def _reinit_logging_for_child(spec: ChildSpec) -> None:
@@ -377,6 +444,7 @@ class Launcher:
 
     def _spawn(self, name: str) -> None:
         spec = self._specs[name]
+        parent_pid = os.getpid()
         try:
             pid = os.fork()
         except OSError:
@@ -419,6 +487,7 @@ class Launcher:
             # Child branch. Must never fall through to normal interpreter
             # shutdown (atexit hooks / buffer flushes would then run in
             # both parent and child) — always os._exit().
+            _set_parent_death_signal(parent_pid)
             try:
                 os.environ.update(spec.env)
                 sys.argv = ["/code/manage.py", spec.name]
