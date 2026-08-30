@@ -1,4 +1,3 @@
-import logging
 import os
 import re
 import socket
@@ -17,44 +16,13 @@ try:
 except Exception:  # noqa
     TAG_VERSION = "unknown"
 
-_ENVIRONMENT: str | None = None
-_RESOLVING_ENVIRONMENT = False
-
-
-def _get_environment() -> str:
-    # Deferred until the first log line is actually emitted rather than run
-    # at import time: every one of the 14+ supervisord-managed processes
-    # per game server imports this module, and eagerly calling
-    # load_from_db() here meant each of them paid a live Postgres round
-    # trip (and opened a DB connection/engine) before doing anything else,
-    # just to compute a cosmetic log-line prefix.
-    global _ENVIRONMENT, _RESOLVING_ENVIRONMENT
-    if _ENVIRONMENT is not None:
-        return _ENVIRONMENT
-    if _RESOLVING_ENVIRONMENT:
-        # Reentrant call: load_from_db() below logs through
-        # rcon.user_config.utils's logger, which propagates up to this
-        # package's own handlers (both carry this same filter), re-entering
-        # this function while _ENVIRONMENT is still unset. Without this
-        # guard that recurses once per log line load_from_db() emits.
-        return "resolving"
-    _RESOLVING_ENVIRONMENT = True
-    try:
-        config = RconServerSettingsUserConfig.load_from_db()
-        _ENVIRONMENT = re.sub(
-            "[^0-9a-zA-Z]+", "", (config.short_name or "default").strip()
-        )[:64]
-    except Exception:  # noqa
-        _ENVIRONMENT = "undefined"
-    finally:
-        _RESOLVING_ENVIRONMENT = False
-    return _ENVIRONMENT
-
-
-class _EnvironmentFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.environment = _get_environment()
-        return True
+try:
+    config = RconServerSettingsUserConfig.load_from_db()
+    ENVIRONMENT = re.sub("[^0-9a-zA-Z]+", "", (config.short_name or "default").strip())[
+        :64
+    ]
+except Exception:  # noqa
+    ENVIRONMENT = "undefined"
 
 
 def get_server_info() -> ServerInfo:
@@ -79,16 +47,11 @@ def build_logging_config() -> dict:
     return {
         "version": 1,
         "disable_existing_loggers": False,
-        "filters": {
-            "environment": {
-                "()": _EnvironmentFilter,
-            },
-        },
         "formatters": {
             "console": {
                 "()": "colorlog.ColoredFormatter",
                 "format": (
-                    f"[%(asctime)s][%(log_color)s%(levelname)s%(reset)s][%(environment)s][{TAG_VERSION}] "
+                    f"[%(asctime)s][%(log_color)s%(levelname)s%(reset)s][{ENVIRONMENT}][{TAG_VERSION}] "
                     "%(name)s %(filename)s:%(funcName)s:%(lineno)d | %(message)s"
                 ),
                 "log_colors": {
@@ -102,7 +65,7 @@ def build_logging_config() -> dict:
             },
             "file": {
                 "format": (
-                    f"[%(asctime)s][%(levelname)s][%(environment)s][{TAG_VERSION}] "
+                    f"[%(asctime)s][%(levelname)s][{ENVIRONMENT}][{TAG_VERSION}] "
                     "%(name)s %(filename)s:%(funcName)s:%(lineno)d | %(message)s"
                 ),
             },
@@ -112,13 +75,11 @@ def build_logging_config() -> dict:
                 "level": "DEBUG",
                 "class": "logging.StreamHandler",
                 "formatter": "console",
-                "filters": ["environment"],
             },
             "file": {
                 "level": "DEBUG",
                 "class": "logging.FileHandler",
                 "formatter": "file",
-                "filters": ["environment"],
                 "filename": os.path.join(
                     os.getenv("LOGGING_PATH", ""),
                     os.getenv("LOGGING_FILENAME", f"{socket.gethostname()}.log"),
