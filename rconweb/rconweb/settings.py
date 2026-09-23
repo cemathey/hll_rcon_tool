@@ -14,19 +14,15 @@ import logging
 import os
 import re
 import socket
-from subprocess import run
+from importlib.metadata import PackageNotFoundError, version
 
 from pydantic import ValidationError
 
 from rcon.user_config.rcon_server_settings import RconServerSettingsUserConfig
 
 try:
-    TAG_VERSION = (
-        run(["git", "describe", "--tags"], capture_output=True, check=False)
-        .stdout.decode()
-        .strip()
-    )
-except Exception:  # noqa
+    TAG_VERSION = f"v{version('hll-rcon-tool')}"
+except PackageNotFoundError:
     TAG_VERSION = "unknown"
 
 HLL_MAINTENANCE_CONTAINER = os.getenv("HLL_MAINTENANCE_CONTAINER")
