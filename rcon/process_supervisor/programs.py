@@ -49,21 +49,24 @@ def _parse_log_recorder_args(extra: list[str]) -> tuple[int, bool]:
 
 def run_broadcasts() -> None:
     from rcon import broadcast
+    from rcon.rcon_retry import restart_on_rcon_error
 
-    broadcast.run()
+    restart_on_rcon_error(broadcast.run, "broadcast_loop")
 
 
 def run_expiring_vips() -> None:
     import rcon.expiring_vips.service
+    from rcon.rcon_retry import restart_on_rcon_error
 
-    rcon.expiring_vips.service.run()
+    restart_on_rcon_error(rcon.expiring_vips.service.run, "expiring_vips")
 
 
 def run_seed_vip() -> None:
     import rcon.seed_vip.service
+    from rcon.rcon_retry import restart_on_rcon_error
 
     try:
-        rcon.seed_vip.service.run()
+        restart_on_rcon_error(rcon.seed_vip.service.run, "seed_vip")
     except Exception:
         logger.exception("seed VIP stopped")
         sys.exit(1)
@@ -107,14 +110,16 @@ def run_log_recorder(extra: list[str]) -> None:
 
 def run_auto_settings() -> None:
     from rcon import auto_settings
+    from rcon.rcon_retry import restart_on_rcon_error
 
-    auto_settings.run()
+    restart_on_rcon_error(auto_settings.run, "auto_settings")
 
 
 def run_routines() -> None:
     from rcon import routines
+    from rcon.rcon_retry import restart_on_rcon_error
 
-    routines.run()
+    restart_on_rcon_error(routines.run, "routines")
 
 
 def run_live_stats_refresh() -> None:

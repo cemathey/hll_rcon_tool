@@ -148,6 +148,30 @@ def test_run_program_log_recorder(monkeypatch):
     recorder.run.assert_called_once_with(run_immediately=True)
 
 
+@pytest.mark.parametrize(
+    ("program", "run_target"),
+    [
+        ("broadcasts", "rcon.broadcast.run"),
+        ("expiring_vips", "rcon.expiring_vips.service.run"),
+        ("seed_vip", "rcon.seed_vip.service.run"),
+        ("auto_settings", "rcon.auto_settings.run"),
+        ("routines", "rcon.routines.run"),
+    ],
+)
+def test_run_program_retries_on_rcon_error(monkeypatch, program, run_target):
+    """Adapters must keep rcon.cli's RCON-error backoff: a connection failure
+    retries the loop after a pause instead of killing the process."""
+    from rcon.connection import HLLServerError
+
+    run = mock.Mock(side_effect=[ConnectionRefusedError(), HLLServerError(), None])
+    sleep = mock.Mock()
+    monkeypatch.setattr(run_target, run)
+    monkeypatch.setattr("rcon.rcon_retry.time.sleep", sleep)
+    run_program(program, [])
+    assert run.call_count == 3
+    assert sleep.call_count == 2
+
+
 def test_run_program_auto_settings_and_routines(monkeypatch):
     auto_settings = mock.Mock()
     routines = mock.Mock()
