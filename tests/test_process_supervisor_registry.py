@@ -189,13 +189,20 @@ def test_run_program_live_stats_failure_exits(monkeypatch):
 def test_run_program_scoreboard_success(monkeypatch):
     scoreboard_run = mock.Mock()
     monkeypatch.setattr("pathlib.Path.exists", lambda self: True)
-    monkeypatch.setattr("sqlalchemy.create_engine", mock.Mock())
+    engine = mock.Mock()
+    monkeypatch.setattr("sqlalchemy.create_engine", mock.Mock(return_value=engine))
     metadata = mock.Mock()
     monkeypatch.setattr("rcon.scoreboard.Base", mock.Mock(metadata=metadata))
     monkeypatch.setattr("rcon.scoreboard.run", scoreboard_run)
+    # ENGINE only exists at module level when rcon.scoreboard runs as __main__
+    monkeypatch.setattr("rcon.scoreboard.ENGINE", None, raising=False)
     run_program("scoreboard", [])
-    metadata.create_all.assert_called_once()
+    metadata.create_all.assert_called_once_with(engine)
     scoreboard_run.assert_called_once_with()
+
+    import rcon.scoreboard
+
+    assert rcon.scoreboard.ENGINE is engine
 
 
 def test_run_program_scoreboard_missing_volume_exits(monkeypatch):

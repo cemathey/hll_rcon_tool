@@ -134,8 +134,7 @@ def run_scoreboard() -> None:
 
     from sqlalchemy import create_engine
 
-    from rcon.scoreboard import Base
-    from rcon.scoreboard import run as scoreboard_run
+    from rcon import scoreboard
 
     volume_path = scoreboard_pathlib.Path("/scoreboard_db")
     if not volume_path.exists():
@@ -148,10 +147,13 @@ def run_scoreboard() -> None:
         "./scoreboard.db"
     )
     engine = create_engine(f"sqlite:///file:{db_path}?mode=rwc&uri=true", echo=False)
+    # rcon.scoreboard only defines ENGINE under `if __name__ == "__main__"`,
+    # which never runs when it's imported here; enter_session() needs it.
+    scoreboard.ENGINE = engine
     try:
         logger.info("Attempting to start scoreboard")
-        Base.metadata.create_all(engine)
-        scoreboard_run()
+        scoreboard.Base.metadata.create_all(engine)
+        scoreboard.run()
     except Exception:
         logger.exception("scoreboard failed unexpectedly")
         raise
